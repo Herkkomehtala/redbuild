@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redbuild On-Demand Generator</title>
+    <!-- Using Bootstrap for styling -->
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #212529;
+            color: #f8f9fa;
+        }
+        .card {
+            background-color: #343a40;
+            border: 1px solid #495057;
+        }
+        .form-label {
+            color: #ced4da;
+        }
+        .form-control, .form-select {
+            background-color: #495057;
+            color: #f8f9fa;
+            border-color: #6c757d;
+        }
+        .form-control:focus, .form-select:focus {
+            background-color: #495057;
+            color: #f8f9fa;
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+        }
+        .progress {
+            background-color: #495057;
+        }
+    </style>
+</head>
+<body class="d-flex align-items-center py-4 bg-dark">
+
+<main class="container" style="max-width: 700px;">
+    <div class="card p-4 p-md-5 shadow rounded-3">
+        <div class="text-center mb-4">
+            <h1 class="h3 mb-3 fw-normal">On-Demand Generator</h1>
+            <p class="text-muted">Upload a file and select a generator to process it.</p>
+        </div>
+
+        <form id="upload-form">
+            <div class="mb-3">
+                <label for="file-input" class="form-label">Input File</label>
+                <input class="form-control" type="file" id="file-input" required>
+            </div>
+
+            <div class="mb-3">
+                <label for="generator-select" class="form-label">Choose Generator</label>
+                <select class="form-select" id="generator-select" required>
+                    <option selected disabled>Loading options...</option>
+                </select>
+            </div>
+
+            <button class="w-100 btn btn-lg btn-primary" type="submit">Generate</button>
+        </form>
+
+        <!-- Status and Result Area -->
+        <div class="mt-4">
+            <div id="status" class="alert alert-secondary" style="display: none;"></div>
+            <div class="progress" style="height: 20px; display: none;">
+                <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <div id="result" class="mt-3 p-3 bg-dark rounded" style="display: none;"></div>
+        </div>
+
+    </div>
+</main>
+
+<script src="js/bootstrap.bundle.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- DOM Element Selection ---
+        const generatorSelect = document.getElementById('generator-select');
+        const fileInput = document.getElementById('file-input');
+        const uploadForm = document.getElementById('upload-form');
+        const statusDiv = document.getElementById('status');
+        const resultDiv = document.getElementById('result');
+        const progressBar = document.getElementById('progress-bar');
+
+        let pollingInterval;
+
+        // --- Core Functions ---
+
+        /**
+         * Fetches all available generators from the backend and populates the dropdown.
+         */
+        async function fetchAndPopulateGenerators() {
+            try {
+                const response = await fetch('/api/generators');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch options (${response.status})`);
+                }
+                const generators = await response.json();
+
+                if (Object.keys(generators).length === 0) {
+                    generatorSelect.innerHTML = '<option selected disabled>No generators available.</option>';
+                    return;
+                }
+
+                generatorSelect.innerHTML = '<option selected disabled value="">Choose a generator...</option>';
+
+                for (const type in generators) {
+                    const optgroup = document.createElement('optgroup');
+                    optgroup.label = type.charAt(0).toUpperCase() + type.slice(1);
+
+                    generators[type].forEach(option => {
+                        const opt = document.createElement('option');
+                        opt.value = JSON.stringify({ type: type, name: option.value });
+                        opt.textContent = option.text;
+                        optgroup.appendChild(opt);
+                    });
+                    generatorSelect.appendChild(optgroup);
+                }
+            } catch (error) {
+                generatorSelect.innerHTML = '<option selected disabled>Error loading options.</option>';
+                updateStatus(`Error: ${error.message}`, 'bg-danger');
+            }
+        }
+
+        /**
+         * Handles the form submission to start a generation job.
+         */
+        async function startGeneration(event) {
+            event.preventDefault();
+
+            const file = fileInput.files[0];
+            if (!file || !generatorSelect.value) {
+                updateStatus('Please select a file and a generator.', 'bg-warning');
+                return;
+            }
+
+            const selectedGenerator = JSON.parse(generatorSelect.value);
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('original_filename', file.name);
+            formData.append('generator_type', selectedGenerator.type);
+            formData.append('generator_name', selectedGenerator.name);
+
+            resetUI();
+            updateStatus('Uploading file and starting job...', 'bg-info');
+
+            try {
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to start job.');
+                }
+
+                const data = await response.json();
+                pollStatus(data.task_id);
+
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'bg-danger');
+            }
+        }
+
+        /**
+         * Polls the backend for the status of a job.
+         */
+        function pollStatus(taskId) {
+            if (pollingInterval) clearInterval(pollingInterval);
+
+            let progress = 0;
+            updateStatus(`Job submitted (ID: ${taskId.substring(0, 8)}...). Waiting for worker...`, 'bg-info');
+
+            pollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/status/${taskId}`);
+                    if (!response.ok) {
+                        throw new Error(`Server returned status: ${response.status}`);
+                    }
+                    const data = await response.json();
+
+                    progress = Math.min(progress + 10, 90);
+                    updateProgressBar(progress);
+
+                    switch (data.state) {
+                        case 'SUCCESS':
+                            clearInterval(pollingInterval);
+                            updateProgressBar(100);
+                            updateStatus('Job Successful!', 'bg-success');
+                            showResult(data.result);
+                            break;
+                        case 'FAILURE':
+                            clearInterval(pollingInterval);
+                            updateProgressBar(100, true);
+                            updateStatus(`Error! ${data.error}`, 'bg-danger');
+                            break;
+                        case 'ACTIVE':
+                            updateStatus('Job is running...', 'bg-info');
+                            break;
+                        case 'PENDING':
+                            updateStatus('Job is pending in queue...', 'bg-secondary');
+                            break;
+                        case 'NOT_FOUND':
+                            clearInterval(pollingInterval);
+                            updateStatus(`Error! Job ID not found. It may have expired.`, 'bg-danger');
+                            break;
+                    }
+                } catch (error) {
+                    clearInterval(pollingInterval);
+                    updateStatus(`Error: ${error.message}`, 'bg-danger');
+                }
+            }, 2000);
+        }
+
+        // --- UI Helper Functions ---
+        function resetUI() {
+            statusDiv.style.display = 'none';
+            resultDiv.style.display = 'none';
+            resultDiv.innerHTML = '';
+            progressBar.parentElement.style.display = 'none';
+            updateProgressBar(0);
+        }
+
+        function updateStatus(message, bgClass) {
+            statusDiv.style.display = 'block';
+            statusDiv.textContent = message;
+            statusDiv.className = `alert ${bgClass} text-white`;
+            if (bgClass !== 'bg-danger' && bgClass !== 'bg-success') {
+                progressBar.parentElement.style.display = 'block';
+            }
+        }
+
+        function updateProgressBar(percentage, isError = false) {
+            progressBar.style.width = `${percentage}%`;
+            progressBar.setAttribute('aria-valuenow', percentage);
+            progressBar.classList.remove('bg-success', 'bg-danger');
+            if (isError) {
+                progressBar.classList.add('bg-danger');
+            } else if (percentage === 100) {
+                progressBar.classList.add('bg-success');
+            }
+        }
+
+        function showResult(filename) {
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `
+                <h5>Artifact Ready:</h5>
+                <p>${filename}</p>
+                <a href="/api/download/${filename}" class="btn btn-success" download>Download Artifact</a>
+            `;
+        }
+
+        // --- Initial Setup ---
+        uploadForm.addEventListener('submit', startGeneration);
+        fetchAndPopulateGenerators();
+    });
+</script>
+</body>
+</html>
+
