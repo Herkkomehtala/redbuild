@@ -13,7 +13,7 @@ def encode(input_filepath, original_filename):
     Returns:
         str: The absolute path to the new, temporary output file for the next stage.
     """
-    print("INFO: Running Base64 encoding (on-disk)...")
+    print("INFO: Running Base64 encoding...")
     
     with open(input_filepath, "rb") as f_in:
         file_content_bytes = f_in.read()

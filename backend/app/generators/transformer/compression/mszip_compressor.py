@@ -1,5 +1,3 @@
-# backend/app/generators/transformer/compression/mszip_compressor.py
-
 import zlib
 import os
 import sys
@@ -15,7 +13,6 @@ MAX_CHUNK_SIZE = 2**15
 MAGIC_BYTES = [10, 81, 229, 192, 24, 0]
 ALGORITHM_ID = 2
 
-# --- Generator Interface Implementation ---
 def encode(input_filepath, original_filename):
     """
     Compresses the content of a file using the MSZIP format, which is
