@@ -3,6 +3,9 @@ kind: Config
 metadata:
   name: redbuild-app
 build:
+  tagPolicy:
+    envTemplate:
+      template: "{{.IMAGE_NAME}}:{{.TAG}}"
   local:
     push: false
   artifacts:
@@ -10,20 +13,10 @@ build:
       context: frontend
       docker:
         dockerfile: Dockerfile.dev
-      sync:
-        manual:
-          - src: 'src/**/*'
-            dest: /usr/share/nginx/html
     - image: redbuild-backend
       context: backend
       docker:
         dockerfile: Dockerfile.dev
-      sync:
-        manual:
-          - src: 'app/**/*.py'
-            dest: /app
-          - src: 'requirements.txt'
-            dest: /app
     - image: win-c-compiler-worker
       context: backend
       docker:
@@ -32,10 +25,7 @@ build:
 deploy:
   kubectl:
     manifests:
-      - k8s/api-rbac.yaml
-      - k8s/shared-volume-pvc.yaml
-      - k8s/frontend-*.yaml
-      - k8s/backend-api-*.yaml
+      - k8s/*.yaml
 
 portForward:
   - resourceType: service
@@ -46,3 +36,4 @@ portForward:
     resourceName: backend-api-service
     port: 5000
     localPort: 5001
+

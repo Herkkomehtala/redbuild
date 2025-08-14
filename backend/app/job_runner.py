@@ -2,55 +2,80 @@ import argparse
 import importlib
 import os
 import sys
+import json
+import uuid
+
+def run_stage(generator_type, stage_name, module_name, input_filepath, original_filename):
+    """
+    Helper to run a single stage of a multi-stage generator (like transformer).
+    It passes file paths and expects a file path in return.
+    """
+    if not module_name:
+        return input_filepath
+
+    print(f"INFO: Running stage '{stage_name}' with module '{module_name}'...")
+    try:
+        module_path = f"app.generators.{generator_type}.{stage_name}.{module_name}"
+        processing_module = importlib.import_module(module_path)
+        
+        output_filepath = processing_module.encode(input_filepath, original_filename)
+        
+        if input_filepath != args.input_file:
+            os.remove(input_filepath)
+            
+        return output_filepath
+    except Exception as e:
+        print(f"ERROR: Failed during stage '{stage_name}'. Reason: {e}", file=sys.stderr)
+        raise
+
+def run_simple_module(generator_type, module_name, input_filepath, original_filename):
+    """
+    Helper for simple, single-module generators (like compiler).
+    """
+    print(f"INFO: Running simple generator '{module_name}'...")
+    try:
+        module_path = f"app.generators.{generator_type}.{module_name}"
+        processing_module = importlib.import_module(module_path)
+        
+        final_artifact_name = processing_module.encode(input_filepath, original_filename)
+        
+        return final_artifact_name
+    except Exception as e:
+        print(f"ERROR: Failed during simple generator '{module_name}'. Reason: {e}", file=sys.stderr)
+        raise
 
 def main():
-    """
-    This is a generic entrypoint for our Kubernetes Job pods.
-    It dynamically loads and runs a specific generator based on command-line arguments.
-    """
-    parser = argparse.ArgumentParser(description="Run a generator module.")
-    parser.add_argument('--generator-type', required=True, help="The type of generator (e.g., 'transformer', 'compiler').")
-    parser.add_argument('--generator-name', required=True, help="The specific generator module to run (e.g., 'base64_encoder').")
-    parser.add_argument('--input-file', required=True, help="Path to the input file on the shared volume.")
-    parser.add_argument('--original-filename', required=True, help="The original name of the uploaded file.")
-
+    parser = argparse.ArgumentParser(description="A smart worker for hierarchical file processing.")
+    parser.add_argument('--input-file', required=True)
+    parser.add_argument('--original-filename', required=True)
+    parser.add_argument('--generator-type', required=True)
+    parser.add_argument('--options', required=True, help='A JSON string of selected options.')
+    
+    global args
     args = parser.parse_args()
-
-    # The JOB_NAME is passed as an environment variable from the services.py
     job_name = os.environ.get("JOB_NAME")
-    if not job_name:
-        print("ERROR: Job failed. Reason: JOB_NAME environment variable not set.")
-        sys.exit(1)
-
-    print(f"INFO: Starting job {job_name} for generator '{args.generator_type}/{args.generator_name}'")
+    options = json.loads(args.options)
 
     try:
-        # Dynamically construct the module path from the arguments.
-        # e.g., "generators.compiler.win_c_embedder"
-        module_path = f"app.generators.{args.generator_type}.{args.generator_name}"
+        print(f"INFO: Starting job {job_name} for generator '{args.generator_type}' with options: {options}")
+        
+        current_filepath = args.input_file
+        final_filename = ""
 
-        print(f"INFO: Importing module: {module_path}")
-        generator_module = importlib.import_module(module_path)
+        if 'module' in options:
+            final_filename = run_simple_module(args.generator_type, options['module'], current_filepath, args.original_filename)
+        else:
+            current_filepath = run_stage(args.generator_type, 'encoding', options.get('encoding'), current_filepath, args.original_filename)
+            current_filepath = run_stage(args.generator_type, 'compression', options.get('compression'), current_filepath, args.original_filename)
+            final_filename = os.path.basename(current_filepath)
 
-        # Read the content of the input file provided by the API server.
-        print(f"INFO: Reading input file: {args.input_file}")
-        with open(args.input_file, 'rb') as f_in:
-            file_content_bytes = f_in.read()
-
-        # Call the 'encode' function within the loaded generator module.
-        output_artifact_name = generator_module.encode(file_content_bytes, args.original_filename)
-
-        # The 'result' file's content is the name of the final downloadable artifact.
-        # The API server reads this file to know what to serve on the /download endpoint.
         result_filepath = os.path.join('/tmp/uploads', f"{job_name}.result")
         with open(result_filepath, 'w') as f_result:
-            f_result.write(output_artifact_name)
+            f_result.write(final_filename)
 
-        print(f"SUCCESS: Transformation complete. Final artifact: {output_artifact_name}")
+        print(f"SUCCESS: Job complete. Final artifact: {final_filename}")
 
     except Exception as e:
-        # If any step fails, print the error and exit with a non-zero code.
-        # The API server will see the Job has failed and retrieve this error from the pod logs.
         print(f"ERROR: Job failed. Reason: {e}", file=sys.stderr)
         sys.exit(1)
 

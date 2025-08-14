@@ -2,8 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend-api
-  labels:
-    app: api
 spec:
   replicas: 1
   selector:
@@ -19,9 +17,13 @@ spec:
       - name: api
         image: redbuild-backend
         command: ["python", "run.py"]
-        env: []
         ports:
         - containerPort: 5000
+        env:
+        - name: REDBUILD_BACKEND_IMAGE
+          value: "{{.REDBUILD_BACKEND_IMAGE}}"
+        - name: WIN_C_COMPILER_WORKER_IMAGE
+          value: "{{.WIN_C_COMPILER_WORKER_IMAGE}}"
         volumeMounts:
         - name: uploads-storage
           mountPath: /tmp/uploads
@@ -29,3 +31,4 @@ spec:
       - name: uploads-storage
         persistentVolumeClaim:
           claimName: shared-uploads-pvc
+

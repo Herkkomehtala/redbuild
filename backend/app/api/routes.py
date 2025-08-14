@@ -1,59 +1,52 @@
-from flask import request, jsonify
-from . import bp  # Import the blueprint
+from flask import request, jsonify, current_app
+from . import bp
 from . import services
 
-@bp.route('/generators', methods=['GET'])
-def get_generators():
+@bp.route('/options', methods=['GET'])
+def get_options():
     """
-    Dynamic endpoint that discovers and returns all available
-    generator types and their options (e.g., {"compiler": [...], "transformer": [...]} ).
-    The frontend will use this to build its UI dynamically.
+    Discovers and returns all available hierarchical generator options.
+    This now calls the correct service function.
     """
     try:
-        available_generators = services.discover_generators()
-        return jsonify(available_generators)
+        options = services.discover_generators()
+        return jsonify(options)
     except Exception as e:
-        # Log the exception here if needed
-        return jsonify({"error": "Could not discover generators."}), 500
+        current_app.logger.error(f"Error in discover_generators: {e}", exc_info=True)
+        return jsonify({"error": "Could not discover processing options."}), 500
 
 
-@bp.route('/generate', methods=['POST'])
-def generate_file():
+@bp.route('/process', methods=['POST'])
+def process_file():
     """
-    Generic endpoint to start any kind of job. It expects the frontend
-    to send the generator_type and generator_name along with the file.
+    Starts a processing job based on a selected generator type and its options,
+    which are passed as a JSON string.
     """
     form_data = request.form
-    if 'file' not in request.files or 'generator_type' not in form_data or 'generator_name' not in form_data:
-        return jsonify({"error": "Missing file or generator selection."}), 400
+    if 'file' not in request.files or 'generator_type' not in form_data or 'options' not in form_data:
+        return jsonify({"error": "Missing file, generator type, or options."}), 400
 
     try:
-        # Delegate the entire job creation process to the service layer.
         job_name = services.start_generator_job(
-            generator_type=form_data['generator_type'],
-            generator_name=form_data['generator_name'],
             file_storage=request.files['file'],
-            original_filename=form_data.get('original_filename', 'unknown_file')
+            original_filename=form_data.get('original_filename', 'unknown_file'),
+            generator_type=form_data['generator_type'],
+            options_json=form_data['options']
         )
-        # The frontend receives a task_id to poll for status.
         return jsonify({"task_id": job_name}), 202
     except Exception as e:
-        # The service layer might raise an exception if something goes wrong.
+        current_app.logger.error(f"Error starting generator job: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+
+# --- Status and Download endpoints remain the same ---
 @bp.route('/status/<job_name>', methods=['GET'])
 def get_status(job_name):
-    """
-    This just passes the job_name to the service layer and returns the result.
-    """
     status_data = services.check_job_status(job_name)
     status_code = 404 if status_data.get('state') == 'NOT_FOUND' else 200
     return jsonify(status_data), status_code
 
-
 @bp.route('/download/<filename>', methods=['GET'])
 def download_file(filename):
-    """
-    Serves the file that the service layer and worker pods have placed on the shared volume. pls dont check for lfi :D
-    """
     return services.download_result_file(filename)
+
