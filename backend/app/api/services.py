@@ -148,7 +148,6 @@ def _build_job_object(job_name, input_filename, original_filename, generator_typ
         spec=V1JobSpec(template=pod_template, backoff_limit=0, ttl_seconds_after_finished=20)
     )
 
-# ... (check_job_status and download_result_file remain the same) ...
 def check_job_status(job_name):
     try:
         job = batch_v1.read_namespaced_job_status(name=job_name, namespace=NAMESPACE)
