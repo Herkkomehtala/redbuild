@@ -36,9 +36,12 @@ def encode(input_filepath, original_filename, options):
     output_artifact_filename = f"{base_name}.{output_ext}"
     
     compiler_command = ["x86_64-w64-mingw32-gcc", "-O2"]
+    if options.get('debug_mode') != 'true':
+        compiler_command.append("-s")
+
     if options.get('debug_mode') == 'true':
         compiler_command.append("-DDEBUG")
-    
+
     temp_def_filepath = None
     if output_ext == 'dll':
         compiler_command.append("-shared")
