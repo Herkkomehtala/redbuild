@@ -14,12 +14,15 @@ from kubernetes.client import (
 
 # --- Configuration ---
 SHARED_VOLUME_PATH = '/tmp/uploads'
+GENERATOR_IMAGE_MAP = {
+    "transformer": "redbuild-backend",
+    "compiler": "win-c-compiler-worker"
+}
 
 # --- Service Functions ---
 def discover_generators():
     """
-    Discovers all generator types and their internal stages/options.
-    Returns a consistent structure for both simple and complex generators.
+    Discovers all generators and their options by looking for a 'manifest.json' file.
     """
     generators = {}
     app_root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,84 +34,61 @@ def discover_generators():
 
     for gen_type in os.listdir(base_path):
         type_path = os.path.join(base_path, gen_type)
-        if os.path.isdir(type_path) and not gen_type.startswith('__'):
-            generator_info = {'stages': {}}
-            has_stages = False
+        manifest_path = os.path.join(type_path, 'manifest.json')
+        
+        if os.path.isfile(manifest_path):
+            try:
+                with open(manifest_path, 'r') as f:
+                    manifest_data = json.load(f)
+                    generators[gen_type] = manifest_data
+            except json.JSONDecodeError:
+                logging.error(f"Could not parse manifest.json for generator: {gen_type}")
 
-            for stage_name in os.listdir(type_path):
-                stage_path = os.path.join(type_path, stage_name)
-                if os.path.isdir(stage_path) and not stage_name.startswith('__'):
-                    has_stages = True
-                    options = []
-                    for f_path in glob.glob(os.path.join(stage_path, '*.py')):
-                        if '__init__' in f_path: continue
-                        module_name = os.path.basename(f_path).replace('.py', '')
-                        display_name = module_name.replace('_', ' ').title()
-                        options.append({'value': module_name, 'text': display_name})
-                    if options:
-                        generator_info['stages'][stage_name] = options
-            
-            if not has_stages:
-                options = []
-                for f_path in glob.glob(os.path.join(type_path, '*.py')):
-                    if '__init__' in f_path: continue
-                    module_name = os.path.basename(f_path).replace('.py', '')
-                    display_name = module_name.replace('_', ' ').title()
-                    options.append({'value': module_name, 'text': display_name})
-                if options:
-                    generator_info['stages']['module'] = options
-
-            generators[gen_type] = generator_info
-            
-    logging.info(f"Discovered generators: {generators}")
+    logging.info(f"Discovered generators via manifests: {generators}")
     return generators
 
 
 def start_generator_job(file_storage, original_filename, generator_type, options_json):
     """
-    Starts a job for a specific generator type, passing a JSON string
-    of the selected options for its internal stages.
+    Starts a job, enriching user options with metadata from the manifest.
     """
     input_filename = f"{uuid.uuid4()}"
     file_storage.save(os.path.join(SHARED_VOLUME_PATH, input_filename))
 
+    user_options = json.loads(options_json)
+    final_options = user_options.copy()
+
+    app_root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    manifest_path = os.path.join(app_root_path, 'generators', generator_type, 'manifest.json')
+    
+    logging.info(f"Looking for manifest for '{generator_type}' at: {manifest_path}")
+    if os.path.exists(manifest_path):
+        with open(manifest_path, 'r') as f:
+            manifest = json.load(f)
+            entry_module = manifest.get('entry_module')
+            if entry_module:
+                final_options['entry_module'] = entry_module
+                logging.info(f"Found and added entry_module '{entry_module}' to options.")
+            else:
+                logging.warning(f"Manifest for '{generator_type}' found, but it is missing the 'entry_module' key.")
+    else:
+        logging.warning(f"Manifest for '{generator_type}' not found. Cannot determine entry module.")
+    
+    final_options_json = json.dumps(final_options)
+
     job_name = f"job-{generator_type}-{uuid.uuid4().hex[:6]}"
-    job_body = _build_job_object(job_name, input_filename, original_filename, generator_type, options_json)
+    job_body = _build_job_object(job_name, input_filename, original_filename, generator_type, final_options_json)
 
     logging.info(f"Creating job '{job_name}' in namespace '{NAMESPACE}'...")
     batch_v1.create_namespaced_job(body=job_body, namespace=NAMESPACE)
     logging.info(f"Successfully created job '{job_name}'.")
     return job_name
 
-def _get_image_tag_from_env():
-    """
-    Parses the full image string from the MY_POD_IMAGE environment variable
-    to extract just the unique tag.
-    """
-    pod_image_string = os.environ.get("MY_POD_IMAGE")
-    if pod_image_string and ':' in pod_image_string:
-        return pod_image_string.split(':', 1)[1]
-    return "latest" # Fallback for local testing
-
-def _get_image_for_generator(generator_type):
-    """
-    Constructs the full, correctly-tagged image name for any generator type.
-    """
-    tag = _get_image_tag_from_env()
-    
-    if generator_type == "compiler":
-        return f"win-c-compiler-worker:{tag}"
-    else:
-        return f"redbuild-backend:{tag}"
-
 def _build_job_object(job_name, input_filename, original_filename, generator_type, options_json):
     """
-    Builds the Kubernetes Job object using a dynamically constructed,
-    fully-tagged image name for any worker type.
+    Builds the Kubernetes Job object.
     """
-    image_name = _get_image_for_generator(generator_type)
-    
-    logging.info(f"Using fully-tagged image '{image_name}' for generator type '{generator_type}'.")
+    image_name = GENERATOR_IMAGE_MAP.get(generator_type, "redbuild-backend")
     
     job_command = [
         "python", "-m", "app.job_runner",
@@ -119,9 +99,7 @@ def _build_job_object(job_name, input_filename, original_filename, generator_typ
     ]
 
     container = V1Container(
-        name="worker",
-        image=image_name,
-        image_pull_policy="IfNotPresent",
+        name="worker", image=image_name, image_pull_policy="IfNotPresent",
         command=job_command,
         volume_mounts=[V1VolumeMount(name="uploads-storage", mount_path=SHARED_VOLUME_PATH)],
         env=[V1EnvVar(name="JOB_NAME", value=job_name)]
@@ -143,26 +121,19 @@ def _build_job_object(job_name, input_filename, original_filename, generator_typ
         spec=V1JobSpec(template=pod_template, backoff_limit=0, ttl_seconds_after_finished=20)
     )
 
-    return V1Job(
-        api_version="batch/v1", kind="Job", metadata=V1ObjectMeta(name=job_name),
-        spec=V1JobSpec(template=pod_template, backoff_limit=0, ttl_seconds_after_finished=20)
-    )
-
 def check_job_status(job_name):
     try:
         job = batch_v1.read_namespaced_job_status(name=job_name, namespace=NAMESPACE)
         status = job.status
     except ApiException as e:
-        if e.status == 404:
-            return {"state": "NOT_FOUND", "error": "Job not found."}
+        if e.status == 404: return {"state": "NOT_FOUND", "error": "Job not found."}
         logging.error(f"API Error checking status for {job_name}: {e.reason}")
         return {"state": "UNKNOWN", "error": f"API Error: {e.reason}"}
     if status.succeeded:
         result_filepath = os.path.join(SHARED_VOLUME_PATH, f"{job_name}.result")
         time.sleep(0.5)
         if os.path.exists(result_filepath):
-            with open(result_filepath, 'r') as f:
-                result = f.read().strip()
+            with open(result_filepath, 'r') as f: result = f.read().strip()
             os.remove(result_filepath)
             return {"state": "SUCCESS", "result": result}
         else:

@@ -1,0 +1,54 @@
+{
+  "display_name": "Windows PE Compiler",
+  "entry_module": "win_c_embedder",
+  "options": [
+    {
+      "name": "output_format",
+      "display_name": "Output Format",
+      "type": "select",
+      "default": "exe",
+      "choices": [
+        { "value": "exe", "text": "EXE" },
+        { "value": "dll", "text": "DLL" }
+      ]
+    },
+    {
+      "name": "debug_mode",
+      "display_name": "Enable Debug Messages",
+      "type": "checkbox",
+      "default": "false"
+    },
+    {
+      "name": "export_name",
+      "display_name": "DLL Export Name",
+      "type": "text",
+      "default": "DllRegisterServer",
+      "placeholder": "e.g., RunPayload",
+      "depends_on": {
+        "option": "output_format",
+        "value": "dll"
+      }
+    },
+    {
+      "name": "allocation_method",
+      "display_name": "Allocation Method",
+      "type": "select",
+      "default": "virtualalloc",
+      "choices": [
+        { "value": "virtualalloc", "text": "VirtualAlloc" },
+        { "value": "mappedsection", "text": "Mapped Section" }
+      ]
+    },
+    {
+      "name": "execution_method",
+      "display_name": "Execution Method",
+      "type": "select",
+      "default": "newthread",
+      "choices": [
+        { "value": "inprocess", "text": "In Process, No New Thread" },
+        { "value": "newthread", "text": "In Process, New Thread" }
+      ]
+    }
+  ]
+}
+

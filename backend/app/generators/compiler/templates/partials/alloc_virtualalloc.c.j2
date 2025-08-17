@@ -1,0 +1,9 @@
+void* AllocateExecutableMemory(SIZE_T size) {
+    if (pfnVirtualAlloc == NULL) {
+        DEBUG_PRINT("VirtualAlloc function pointer is NULL!");
+        return NULL;
+    }
+    DEBUG_PRINT("Allocating memory via dynamically resolved VirtualAlloc...");
+    return pfnVirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+}
+

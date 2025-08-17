@@ -20,6 +20,7 @@ def run_stage(generator_type, stage_name, module_name, input_filepath, original_
         
         output_filepath = processing_module.encode(input_filepath, original_filename)
         
+        # Clean up the previous intermediate file to save space
         if input_filepath != args.input_file:
             os.remove(input_filepath)
             
@@ -28,20 +29,26 @@ def run_stage(generator_type, stage_name, module_name, input_filepath, original_
         print(f"ERROR: Failed during stage '{stage_name}'. Reason: {e}", file=sys.stderr)
         raise
 
-def run_simple_module(generator_type, module_name, input_filepath, original_filename):
+def run_simple_generator(generator_type, options, input_filepath, original_filename):
     """
-    Helper for simple, single-module generators (like compiler).
+    Helper for simple, manifest-driven generators (like compiler).
+    It reads the entry module from the manifest options.
     """
-    print(f"INFO: Running simple generator '{module_name}'...")
+    entry_module_name = options.get('entry_module')
+    if not entry_module_name:
+        raise ValueError("Manifest for simple generator is missing 'entry_module' key.")
+
+    print(f"INFO: Running simple generator '{entry_module_name}'...")
     try:
-        module_path = f"app.generators.{generator_type}.{module_name}"
+        module_path = f"app.generators.{generator_type}.{entry_module_name}"
         processing_module = importlib.import_module(module_path)
         
-        final_artifact_name = processing_module.encode(input_filepath, original_filename)
+        # We pass the entire options dictionary to the encode function.
+        final_artifact_name = processing_module.encode(input_filepath, original_filename, options)
         
         return final_artifact_name
     except Exception as e:
-        print(f"ERROR: Failed during simple generator '{module_name}'. Reason: {e}", file=sys.stderr)
+        print(f"ERROR: Failed during simple generator '{entry_module_name}'. Reason: {e}", file=sys.stderr)
         raise
 
 def main():
@@ -62,8 +69,8 @@ def main():
         current_filepath = args.input_file
         final_filename = ""
 
-        if 'module' in options:
-            final_filename = run_simple_module(args.generator_type, options['module'], current_filepath, args.original_filename)
+        if 'entry_module' in options:
+            final_filename = run_simple_generator(args.generator_type, options, current_filepath, args.original_filename)
         else:
             current_filepath = run_stage(args.generator_type, 'encoding', options.get('encoding'), current_filepath, args.original_filename)
             current_filepath = run_stage(args.generator_type, 'compression', options.get('compression'), current_filepath, args.original_filename)

@@ -1,0 +1,45 @@
+void* AllocateExecutableMemory(SIZE_T size) {
+    HANDLE hSection;
+    void* exec_mem;
+
+    if (pfnCreateFileMappingW == NULL || pfnMapViewOfFile == NULL) {
+        DEBUG_PRINT("CreateFileMappingW or MapViewOfFile function pointers are NULL!");
+        return NULL;
+    }
+
+    DEBUG_PRINT("Creating a memory-backed section of size %u bytes...", size);
+    
+    hSection = pfnCreateFileMappingW(
+        INVALID_HANDLE_VALUE,
+        NULL,
+        PAGE_EXECUTE_READWRITE,
+        0,
+        size,
+        NULL
+    );
+
+    if (hSection == NULL) {
+        DEBUG_PRINT("CreateFileMappingW failed!");
+        return NULL;
+    }
+
+    DEBUG_PRINT("Section handle created: %p", hSection);
+
+    exec_mem = pfnMapViewOfFile(
+        hSection,
+        FILE_MAP_WRITE | FILE_MAP_EXECUTE,
+        0,
+        0,
+        size
+    );
+
+    pfnCloseHandle(hSection);
+
+    if (exec_mem == NULL) {
+        DEBUG_PRINT("MapViewOfFile failed!");
+        return NULL;
+    }
+    
+    DEBUG_PRINT("Memory successfully mapped at: %p", exec_mem);
+    return exec_mem;
+}

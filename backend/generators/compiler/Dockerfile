@@ -1,10 +1,18 @@
-FROM debian:bullseye-slim
+FROM python:3.9-slim
 
-RUN apt-get update && apt-get install -y mingw-w64 && rm -rf /var/lib/apt/lists/*
+LABEL version="1.0.1"
 
-WORKDIR /workspace
+WORKDIR /app
 
-COPY app/job_runner.py .
-COPY app/generators/compiler/ ./generators/compiler/
+RUN apt-get update && \
+    apt-get install -y mingw-w64 && \
+    rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir Jinja2==3.1.6
 
-ENV PYTHONPATH=/workspace
+RUN mkdir -p app/generators/compiler
+
+RUN touch app/__init__.py
+RUN touch app/generators/__init__.py
+
+COPY app/job_runner.py ./app/
+COPY app/generators/compiler/ ./app/generators/compiler/

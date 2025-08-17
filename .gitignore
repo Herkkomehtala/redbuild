@@ -3,6 +3,7 @@
 *.pid
 *.seed
 *.pid.lock
+*.bin
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json

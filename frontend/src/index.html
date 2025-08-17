@@ -12,6 +12,7 @@
         .form-control, .form-select { background-color: #495057; color: #f8f9fa; border-color: #6c757d; }
         .form-control:focus, .form-select:focus { background-color: #495057; color: #f8f9fa; border-color: #0d6efd; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
         .progress { background-color: #495057; }
+        .hidden-option { display: none; }
     </style>
 </head>
 <body class="d-flex align-items-center py-4 bg-dark">
@@ -19,7 +20,7 @@
 <main class="container" style="max-width: 700px;">
     <div class="card p-4 p-md-5 shadow rounded-3">
         <div class="text-center mb-4">
-            <h1 class="h3 mb-3 fw-normal">Hierarchical Processor</h1>
+            <h1 class="h3 mb-3 fw-normal">Redbuild payload generator</h1>
             <p class="text-muted">Select a generator and configure its steps.</p>
         </div>
 
@@ -68,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
             for (const type in generatorsData) {
                 const opt = document.createElement('option');
                 opt.value = type;
-                opt.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+                opt.textContent = generatorsData[type].display_name || (type.charAt(0).toUpperCase() + type.slice(1));
                 generatorTypeSelect.appendChild(opt);
             }
         } catch (error) {
@@ -83,26 +84,78 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const generator = generatorsData[selectedType];
         
-        for (const stage in generator.stages) {
+        generator.options.forEach(option => {
             const div = document.createElement('div');
             div.className = 'mb-3';
-            const labelText = stage === 'module' ? 'Module' : `Stage: ${stage.charAt(0).toUpperCase() + stage.slice(1)} (Optional)`;
-            div.innerHTML = `<label for="select-${stage}" class="form-label">${labelText}</label>`;
-            
-            const select = document.createElement('select');
-            select.className = 'form-select';
-            select.id = `select-${stage}`;
-            select.name = stage;
-            
-            const defaultOptionText = stage === 'module' ? 'Select a module...' : '-- None --';
-            select.innerHTML = `<option value="">${defaultOptionText}</option>`;
+            div.id = `container-${option.name}`;
 
-            generator.stages[stage].forEach(option => {
-                select.innerHTML += `<option value="${option.value}">${option.text}</option>`;
-            });
-            div.appendChild(select);
+            if (option.type === 'select') {
+                div.innerHTML = `<label for="option-${option.name}" class="form-label">${option.display_name}</label>`;
+                const select = document.createElement('select');
+                select.className = 'form-select';
+                select.id = `option-${option.name}`;
+                select.name = option.name;
+                select.innerHTML = `<option value="">-- ${option.name === 'module' ? 'Select a module...' : 'None'} --</option>`;
+                option.choices.forEach(choice => {
+                    select.innerHTML += `<option value="${choice.value}">${choice.text}</option>`;
+                });
+                select.value = option.default || '';
+                div.appendChild(select);
+
+            } else if (option.type === 'text') {
+                div.innerHTML = `<label for="option-${option.name}" class="form-label">${option.display_name}</label>`;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'form-control';
+                input.id = `option-${option.name}`;
+                input.name = option.name;
+                input.placeholder = option.placeholder || '';
+                input.value = option.default || '';
+                div.appendChild(input);
+
+            // --- THIS IS THE NEW LOGIC ---
+            } else if (option.type === 'checkbox') {
+                div.className = 'mb-3 form-check form-switch';
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.className = 'form-check-input';
+                input.id = `option-${option.name}`;
+                input.name = option.name;
+                input.value = 'true'; // The value sent when checked
+                input.checked = option.default === 'true';
+                
+                const label = document.createElement('label');
+                label.className = 'form-check-label';
+                label.setAttribute('for', `option-${option.name}`);
+                label.textContent = option.display_name;
+                
+                div.appendChild(input);
+                div.appendChild(label);
+            }
             optionsContainer.appendChild(div);
-        }
+        });
+
+        updateDependencies();
+    }
+
+    function updateDependencies() {
+        const selectedType = generatorTypeSelect.value;
+        if (!selectedType || !generatorsData[selectedType]) return;
+        const generator = generatorsData[selectedType];
+
+        generator.options.forEach(option => {
+            if (option.depends_on) {
+                const parentElement = document.getElementById(`option-${option.depends_on.option}`);
+                const childContainer = document.getElementById(`container-${option.name}`);
+                if (parentElement && childContainer) {
+                    const updateVisibility = () => {
+                        childContainer.classList.toggle('hidden-option', parentElement.value !== option.depends_on.value);
+                    };
+                    updateVisibility(); // Check on initial render
+                    parentElement.addEventListener('change', updateVisibility); // Check on change
+                }
+            }
+        });
     }
 
     async function startProcessing(event) {
@@ -120,15 +173,25 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('generator_type', generatorType);
 
         const selectedOptions = {};
-        const optionSelects = optionsContainer.querySelectorAll('select');
-        optionSelects.forEach(select => {
-            if (select.value) {
-                selectedOptions[select.name] = select.value;
+        const optionInputs = optionsContainer.querySelectorAll('select, input');
+        optionInputs.forEach(input => {
+            if (input.type === 'checkbox') {
+                if (input.checked) {
+                    selectedOptions[input.name] = input.value;
+                }
+            } else {
+                if (input.value) {
+                    selectedOptions[input.name] = input.value;
+                }
             }
         });
         
+        if (Object.keys(selectedOptions).length === 0) {
+            updateStatus('Please select at least one processing option.', 'bg-warning');
+            return;
+        }
+        
         formData.append('options', JSON.stringify(selectedOptions));
-
         updateStatus('Uploading file and starting job...', 'bg-info', 0);
 
         try {
