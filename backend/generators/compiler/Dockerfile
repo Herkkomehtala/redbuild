@@ -1,7 +1,5 @@
 FROM python:3.9-slim
 
-LABEL version="1.0.1"
-
 WORKDIR /app
 
 RUN apt-get update && \
