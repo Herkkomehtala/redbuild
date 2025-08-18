@@ -13,6 +13,15 @@
         .form-control:focus, .form-select:focus { background-color: #495057; color: #f8f9fa; border-color: #0d6efd; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
         .progress { background-color: #495057; }
         .hidden-option { display: none; }
+        .btn-group-radio label {
+            border-color: #6c757d;
+            background-color: #495057;
+            color: #f8f9fa;
+        }
+        .btn-group-radio input[type="radio"]:checked + label {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
     </style>
 </head>
 <body class="d-flex align-items-center py-4 bg-dark">
@@ -84,55 +93,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const generator = generatorsData[selectedType];
         
+        const driverOption = generator.options.find(opt => opt.name === 'output_format');
+        
+        if (driverOption) {
+            renderRadioGroup(driverOption);
+        }
+
         generator.options.forEach(option => {
-            const div = document.createElement('div');
-            div.className = 'mb-3';
-            div.id = `container-${option.name}`;
+            if (option.name === 'output_format') return;
+
+            const containerDiv = document.createElement('div');
+            containerDiv.className = 'mb-3';
+            containerDiv.id = `container-${option.name}`;
 
             if (option.type === 'select') {
-                div.innerHTML = `<label for="option-${option.name}" class="form-label">${option.display_name}</label>`;
-                const select = document.createElement('select');
-                select.className = 'form-select';
-                select.id = `option-${option.name}`;
-                select.name = option.name;
-                select.innerHTML = `<option value="">-- ${option.name === 'module' ? 'Select a module...' : 'None'} --</option>`;
-                option.choices.forEach(choice => {
-                    select.innerHTML += `<option value="${choice.value}">${choice.text}</option>`;
-                });
-                select.value = option.default || '';
-                div.appendChild(select);
-
+                renderSelect(option, containerDiv);
             } else if (option.type === 'text') {
-                div.innerHTML = `<label for="option-${option.name}" class="form-label">${option.display_name}</label>`;
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.className = 'form-control';
-                input.id = `option-${option.name}`;
-                input.name = option.name;
-                input.placeholder = option.placeholder || '';
-                input.value = option.default || '';
-                div.appendChild(input);
-
-            // --- THIS IS THE NEW LOGIC ---
+                renderTextInput(option, containerDiv);
             } else if (option.type === 'checkbox') {
-                div.className = 'mb-3 form-check form-switch';
-                const input = document.createElement('input');
-                input.type = 'checkbox';
-                input.className = 'form-check-input';
-                input.id = `option-${option.name}`;
-                input.name = option.name;
-                input.value = 'true'; // The value sent when checked
-                input.checked = option.default === 'true';
-                
-                const label = document.createElement('label');
-                label.className = 'form-check-label';
-                label.setAttribute('for', `option-${option.name}`);
-                label.textContent = option.display_name;
-                
-                div.appendChild(input);
-                div.appendChild(label);
+                renderCheckbox(option, containerDiv);
             }
-            optionsContainer.appendChild(div);
+            
+            optionsContainer.appendChild(containerDiv);
         });
 
         updateDependencies();
@@ -141,65 +123,144 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateDependencies() {
         const selectedType = generatorTypeSelect.value;
         if (!selectedType || !generatorsData[selectedType]) return;
+
         const generator = generatorsData[selectedType];
 
         generator.options.forEach(option => {
             if (option.depends_on) {
-                const parentElement = document.getElementById(`option-${option.depends_on.option}`);
+                const parentOptionName = option.depends_on.option;
+                const requiredParentValue = option.depends_on.value;
+                
+                const parentElement = document.querySelector(`[name="${parentOptionName}"]:checked`) || document.getElementById(`option-${parentOptionName}`);
                 const childContainer = document.getElementById(`container-${option.name}`);
+
                 if (parentElement && childContainer) {
-                    const updateVisibility = () => {
-                        childContainer.classList.toggle('hidden-option', parentElement.value !== option.depends_on.value);
-                    };
-                    updateVisibility(); // Check on initial render
-                    parentElement.addEventListener('change', updateVisibility); // Check on change
+                    childContainer.classList.toggle('hidden-option', parentElement.value !== requiredParentValue);
                 }
             }
         });
+    }
+
+    // --- UI Rendering Helper Functions ---
+    function renderRadioGroup(option) {
+        const driverDiv = document.createElement('div');
+        driverDiv.className = 'mb-3';
+        driverDiv.innerHTML = `<label class="form-label">${option.display_name}</label>`;
+        
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'btn-group w-100 btn-group-radio';
+        btnGroup.setAttribute('role', 'group');
+
+        option.choices.forEach(choice => {
+            const radioId = `radio-${option.name}-${choice.value}`;
+            const radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.className = 'btn-check';
+            radio.name = option.name;
+            radio.id = radioId;
+            radio.value = choice.value;
+            radio.autocomplete = 'off';
+            if (choice.value === option.default) {
+                radio.checked = true;
+            }
+            radio.addEventListener('change', updateDependencies);
+
+            const label = document.createElement('label');
+            label.className = 'btn btn-outline-primary w-100';
+            label.setAttribute('for', radioId);
+            label.textContent = choice.text;
+
+            btnGroup.appendChild(radio);
+            btnGroup.appendChild(label);
+        });
+        driverDiv.appendChild(btnGroup);
+        optionsContainer.appendChild(driverDiv);
+    }
+
+    function renderSelect(option, containerDiv) {
+        containerDiv.innerHTML = `<label for="option-${option.name}" class="form-label">${option.display_name}</label>`;
+        const select = document.createElement('select');
+        select.className = 'form-select';
+        select.id = `option-${option.name}`;
+        select.name = option.name;
+        select.innerHTML = `<option value="">-- ${option.name === 'module' ? 'Select a module...' : 'None'} --</option>`;
+        option.choices.forEach(choice => {
+            select.innerHTML += `<option value="${choice.value}">${choice.text}</option>`;
+        });
+        select.value = option.default || '';
+        containerDiv.appendChild(select);
+    }
+
+    function renderTextInput(option, containerDiv) {
+        containerDiv.innerHTML = `<label for="option-${option.name}" class="form-label">${option.display_name}</label>`;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-control';
+        input.id = `option-${option.name}`;
+        input.name = option.name;
+        input.placeholder = option.placeholder || '';
+        input.value = option.default || '';
+        containerDiv.appendChild(input);
+    }
+
+    function renderCheckbox(option, containerDiv) {
+        containerDiv.className = 'mb-3 form-check form-switch';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.className = 'form-check-input';
+        input.id = `option-${option.name}`;
+        input.name = option.name;
+        input.value = 'true';
+        input.checked = option.default === 'true';
+        
+        const label = document.createElement('label');
+        label.className = 'form-check-label';
+        label.setAttribute('for', `option-${option.name}`);
+        label.textContent = option.display_name;
+        
+        containerDiv.appendChild(input);
+        containerDiv.appendChild(label);
     }
 
     async function startProcessing(event) {
         event.preventDefault();
         const file = fileInput.files[0];
         const generatorType = generatorTypeSelect.value;
+
         if (!file || !generatorType) {
             updateStatus('Please select a file and a generator type.', 'bg-warning');
             return;
         }
 
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('original_filename', file.name);
-        formData.append('generator_type', generatorType);
-
+        const tempFormData = new FormData(uploadForm);
         const selectedOptions = {};
-        const optionInputs = optionsContainer.querySelectorAll('select, input');
-        optionInputs.forEach(input => {
-            if (input.type === 'checkbox') {
-                if (input.checked) {
-                    selectedOptions[input.name] = input.value;
-                }
-            } else {
-                if (input.value) {
-                    selectedOptions[input.name] = input.value;
+        for (const [key, value] of tempFormData.entries()) {
+            if (key !== 'file' && key !== 'generator_type') {
+                if (value) { // Only include if a value was selected/entered.
+                    selectedOptions[key] = value;
                 }
             }
-        });
-        
-        if (Object.keys(selectedOptions).length === 0) {
-            updateStatus('Please select at least one processing option.', 'bg-warning');
-            return;
         }
+
+        const finalFormData = new FormData();
+        finalFormData.append('file', file);
+        finalFormData.append('original_filename', file.name);
+        finalFormData.append('generator_type', generatorType); // Use the value we got at the start
+        finalFormData.append('options', JSON.stringify(selectedOptions));
         
-        formData.append('options', JSON.stringify(selectedOptions));
         updateStatus('Uploading file and starting job...', 'bg-info', 0);
 
         try {
-            const response = await fetch('/api/process', { method: 'POST', body: formData });
+            const response = await fetch('/api/process', {
+                method: 'POST',
+                body: finalFormData,
+            });
+
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.error || 'Failed to start job.');
             }
+
             const data = await response.json();
             pollStatus(data.task_id);
         } catch (error) {

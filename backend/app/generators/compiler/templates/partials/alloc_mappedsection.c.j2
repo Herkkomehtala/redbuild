@@ -3,11 +3,11 @@ void* AllocateExecutableMemory(SIZE_T size) {
     void* exec_mem;
 
     if (pfnCreateFileMappingW == NULL || pfnMapViewOfFile == NULL) {
-        DEBUG_PRINT("CreateFileMappingW or MapViewOfFile function pointers are NULL!");
+        DEBUG_PRINT("AllocateExecutableMemory: CreateFileMappingW or MapViewOfFile function pointers are NULL!");
         return NULL;
     }
 
-    DEBUG_PRINT("Creating a memory-backed section of size %u bytes...", size);
+    DEBUG_PRINT("AllocateExecutableMemory: Creating a memory-backed section of size %u bytes...", size);
     
     hSection = pfnCreateFileMappingW(
         INVALID_HANDLE_VALUE,
@@ -19,11 +19,11 @@ void* AllocateExecutableMemory(SIZE_T size) {
     );
 
     if (hSection == NULL) {
-        DEBUG_PRINT("CreateFileMappingW failed!");
+        DEBUG_PRINT("AllocateExecutableMemory: CreateFileMappingW failed!");
         return NULL;
     }
 
-    DEBUG_PRINT("Section handle created: %p", hSection);
+    DEBUG_PRINT("AllocateExecutableMemory: Section handle created: %p", hSection);
 
     exec_mem = pfnMapViewOfFile(
         hSection,
@@ -36,10 +36,10 @@ void* AllocateExecutableMemory(SIZE_T size) {
     pfnCloseHandle(hSection);
 
     if (exec_mem == NULL) {
-        DEBUG_PRINT("MapViewOfFile failed!");
+        DEBUG_PRINT("AllocateExecutableMemory: MapViewOfFile failed!");
         return NULL;
     }
     
-    DEBUG_PRINT("Memory successfully mapped at: %p", exec_mem);
+    DEBUG_PRINT("AllocateExecutableMemory: Memory successfully mapped at: %p", exec_mem);
     return exec_mem;
 }

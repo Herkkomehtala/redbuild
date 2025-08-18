@@ -9,7 +9,8 @@
       "default": "exe",
       "choices": [
         { "value": "exe", "text": "EXE" },
-        { "value": "dll", "text": "DLL" }
+        { "value": "dll", "text": "DLL" },
+        { "value": "cpl", "text": "CPL" }
       ]
     },
     {
