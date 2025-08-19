@@ -20,6 +20,25 @@
       "default": "false"
     },
     {
+      "name": "bytecode_encoding",
+      "display_name": "Bytecode Encoding (Pre-Processing)",
+      "type": "select",
+      "choices": [
+        { "value": "", "text": "None (Raw Bytes)" },
+        { "value": "base64_encoder", "text": "Base64 Encode" },
+        { "value": "base85_encoder", "text": "Base85 Encode" }
+      ]
+    },
+    {
+      "name": "bytecode_compression",
+      "display_name": "Bytecode Compression (Pre-Processing)",
+      "type": "select",
+      "choices": [
+        { "value": "", "text": "None" },
+        { "value": "mszip_compressor", "text": "MSZIP Compress" }
+      ]
+    },
+    {
       "name": "export_name",
       "display_name": "DLL Export Name",
       "type": "text",

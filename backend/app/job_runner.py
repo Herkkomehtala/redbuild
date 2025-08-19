@@ -5,10 +5,9 @@ import sys
 import json
 import uuid
 
-def run_stage(generator_type, stage_name, module_name, input_filepath, original_filename):
+def run_stage(stage_name, module_name, input_filepath, original_filename, generator_type="transformer"):
     """
-    Helper to run a single stage of a multi-stage generator (like transformer).
-    It passes file paths and expects a file path in return.
+    Helper to run a single stage of a multi-stage generator.
     """
     if not module_name:
         return input_filepath
@@ -20,7 +19,6 @@ def run_stage(generator_type, stage_name, module_name, input_filepath, original_
         
         output_filepath = processing_module.encode(input_filepath, original_filename)
         
-        # Clean up the previous intermediate file to save space
         if input_filepath != args.input_file:
             os.remove(input_filepath)
             
@@ -32,7 +30,6 @@ def run_stage(generator_type, stage_name, module_name, input_filepath, original_
 def run_simple_generator(generator_type, options, input_filepath, original_filename):
     """
     Helper for simple, manifest-driven generators (like compiler).
-    It reads the entry module from the manifest options.
     """
     entry_module_name = options.get('entry_module')
     if not entry_module_name:
@@ -43,7 +40,6 @@ def run_simple_generator(generator_type, options, input_filepath, original_filen
         module_path = f"app.generators.{generator_type}.{entry_module_name}"
         processing_module = importlib.import_module(module_path)
         
-        # We pass the entire options dictionary to the encode function.
         final_artifact_name = processing_module.encode(input_filepath, original_filename, options)
         
         return final_artifact_name
@@ -69,11 +65,14 @@ def main():
         current_filepath = args.input_file
         final_filename = ""
 
-        if 'entry_module' in options:
+        is_compiler_job = 'output_format' in options 
+        is_transformer_job = not is_compiler_job
+
+        if is_compiler_job:
             final_filename = run_simple_generator(args.generator_type, options, current_filepath, args.original_filename)
-        else:
-            current_filepath = run_stage(args.generator_type, 'encoding', options.get('encoding'), current_filepath, args.original_filename)
-            current_filepath = run_stage(args.generator_type, 'compression', options.get('compression'), current_filepath, args.original_filename)
+        elif is_transformer_job:
+            current_filepath = run_stage('encoding', options.get('encoding'), current_filepath, args.original_filename)
+            current_filepath = run_stage('compression', options.get('compression'), current_filepath, args.original_filename)
             final_filename = os.path.basename(current_filepath)
 
         result_filepath = os.path.join('/tmp/uploads', f"{job_name}.result")

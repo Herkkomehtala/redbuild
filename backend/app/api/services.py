@@ -47,42 +47,74 @@ def discover_generators():
     logging.info(f"Discovered generators via manifests: {generators}")
     return generators
 
-
 def start_generator_job(file_storage, original_filename, generator_type, options_json):
     """
-    Starts a job, enriching user options with metadata from the manifest.
+    Starts our generator jobs, orchestratings a multi-job pipeline if necessary.
     """
-    input_filename = f"{uuid.uuid4()}"
-    file_storage.save(os.path.join(SHARED_VOLUME_PATH, input_filename))
-
     user_options = json.loads(options_json)
-    final_options = user_options.copy()
+    
+    transformation_options = {
+        'encoding': user_options.get('bytecode_encoding'),
+        'compression': user_options.get('bytecode_compression')
+    }
+    selected_transformations = {k: v for k, v in transformation_options.items() if v}
+
+    input_filename = f"{uuid.uuid4()}"
+    input_filepath = os.path.join(SHARED_VOLUME_PATH, input_filename)
+    file_storage.save(input_filepath)
+    
+    final_input_for_compiler = input_filename
+
+    if generator_type == 'compiler' and selected_transformations:
+        logging.info("Transformation step required. Starting transformer job first...")
+        transformer_job_name = f"job-transformer-preproc-{uuid.uuid4().hex[:6]}"
+        transformer_job_body = _build_job_object(
+            transformer_job_name, input_filename, original_filename, "transformer", json.dumps(selected_transformations)
+        )
+        batch_v1.create_namespaced_job(body=transformer_job_body, namespace=NAMESPACE)
+        
+        final_artifact_name = _wait_for_job_completion(transformer_job_name)
+        if not final_artifact_name:
+            raise Exception("Pre-processing transformer job failed.")
+            
+        logging.info(f"Transformer job complete. Intermediate artifact: {final_artifact_name}")
+        final_input_for_compiler = final_artifact_name
 
     app_root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     manifest_path = os.path.join(app_root_path, 'generators', generator_type, 'manifest.json')
+    final_options = user_options.copy()
     
-    logging.info(f"Looking for manifest for '{generator_type}' at: {manifest_path}")
     if os.path.exists(manifest_path):
         with open(manifest_path, 'r') as f:
             manifest = json.load(f)
-            entry_module = manifest.get('entry_module')
-            if entry_module:
-                final_options['entry_module'] = entry_module
-                logging.info(f"Found and added entry_module '{entry_module}' to options.")
-            else:
-                logging.warning(f"Manifest for '{generator_type}' found, but it is missing the 'entry_module' key.")
-    else:
-        logging.warning(f"Manifest for '{generator_type}' not found. Cannot determine entry module.")
+            if manifest.get('entry_module'):
+                final_options['entry_module'] = manifest['entry_module']
+                logging.info(f"Enriched options with entry_module: {manifest.get('entry_module')}")
+
+    logging.info(f"Starting main '{generator_type}' job...")
+    main_job_name = f"job-{generator_type}-{uuid.uuid4().hex[:6]}"
+    main_job_body = _build_job_object(
+        main_job_name, final_input_for_compiler, original_filename, generator_type, json.dumps(final_options)
+    )
+    batch_v1.create_namespaced_job(body=main_job_body, namespace=NAMESPACE)
     
-    final_options_json = json.dumps(final_options)
+    return main_job_name
 
-    job_name = f"job-{generator_type}-{uuid.uuid4().hex[:6]}"
-    job_body = _build_job_object(job_name, input_filename, original_filename, generator_type, final_options_json)
-
-    logging.info(f"Creating job '{job_name}' in namespace '{NAMESPACE}'...")
-    batch_v1.create_namespaced_job(body=job_body, namespace=NAMESPACE)
-    logging.info(f"Successfully created job '{job_name}'.")
-    return job_name
+def _wait_for_job_completion(job_name, timeout=120):
+    """A blocking function to poll for job completion."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            status_data = check_job_status(job_name)
+            if status_data['state'] == 'SUCCESS':
+                return status_data['result']
+            if status_data['state'] == 'FAILURE':
+                logging.error(f"Job '{job_name}' failed with error: {status_data.get('error')}")
+                return None
+        except Exception as e:
+            logging.error(f"Error polling for job {job_name}: {e}")
+        time.sleep(2)
+    raise TimeoutError(f"Timed out waiting for job '{job_name}' to complete.")
 
 def _build_job_object(job_name, input_filename, original_filename, generator_type, options_json):
     """

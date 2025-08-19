@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import uuid
+import importlib
 from jinja2 import Environment, FileSystemLoader
 
 def _build_compiler_command(options, temp_c_filename, temp_def_filename, output_artifact_filename):
@@ -25,15 +26,16 @@ def _build_compiler_command(options, temp_c_filename, temp_def_filename, output_
 
 def encode(input_filepath, original_filename, options):
     """
-    Dynamically generates and compiles a C program based on user-selected options.
+    Dynamically generates and compiles a C program using a pre-transformed bytecode file.
     """
     print(f"INFO: Starting Windows C embedder with options: {options}")
     
     temp_files_to_clean = []
     try:
         with open(input_filepath, "rb") as f:
-            bytecode = f.read()
-        bytecode_array_str = ", ".join([f"0x{byte:02x}" for byte in bytecode])
+            bytecode_to_embed = f.read()
+
+        bytecode_array_str = ", ".join([f"0x{byte:02x}" for byte in bytecode_to_embed])
 
         template_dir = os.path.join(os.path.dirname(__file__), 'templates')
         env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
@@ -41,6 +43,8 @@ def encode(input_filepath, original_filename, options):
 
         output_format = options.get('output_format', 'exe')
         export_name = 'CPlApplet' if output_format == 'cpl' else options.get('export_name', 'DllRegisterServer')
+        
+        transformation_choice = options.get('bytecode_encoding') or options.get('bytecode_compression')
 
         c_source_code = template.render(
             bytecode_array=bytecode_array_str,
@@ -48,7 +52,8 @@ def encode(input_filepath, original_filename, options):
             execution_partial=f"partials/exec_{options.get('execution_method', 'newthread')}.c.j2",
             output_format=output_format,
             export_name=export_name,
-            debug_mode=(options.get('debug_mode') == 'true')
+            debug_mode=(options.get('debug_mode') == 'true'),
+            bytecode_transformation=transformation_choice
         )
 
         temp_c_filename = f"{uuid.uuid4()}.c"
@@ -88,4 +93,3 @@ def encode(input_filepath, original_filename, options):
         for f_path in temp_files_to_clean:
             if os.path.exists(f_path):
                 os.remove(f_path)
-
