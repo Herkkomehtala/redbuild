@@ -67,7 +67,7 @@ void Run() {
         current_len = decoded_len;
 
     {% elif bytecode_transformation == 'base85_encoder' %}
-        decoded_len:q = (current_len / 5) * 4 + 4;
+        decoded_len = (current_len / 5) * 4 + 4;
         decoded_data = (unsigned char*)pfnHeapAlloc(pfnGetProcessHeap(), 0, decoded_len);
         Base85Decode(current_data, current_len, decoded_data, &decoded_len);
         DEBUG_PRINT("Run: Base85 decoded payload");

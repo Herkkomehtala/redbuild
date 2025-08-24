@@ -1,0 +1,47 @@
+unsigned char *MszipDecompress(const unsigned char *src, size_t len, size_t *out_len) {
+    DEBUG_PRINT("MszipDecompress: Decompressing MSZIP data using the Compression API...");
+
+    DECOMPRESSOR_HANDLE decompressor = NULL;
+    unsigned char* decompressed_buffer = NULL;
+    SIZE_T final_size = 0;
+
+    if (pfnCreateDecompressor == NULL || pfnDecompress == NULL || pfnCloseDecompressor == NULL) {
+        DEBUG_PRINT("MszipDecompress: Required Compression API function pointers are NULL!");
+        return NULL;
+    }
+
+    if (!pfnCreateDecompressor(COMPRESS_ALGORITHM_MSZIP, NULL, &decompressor)) {
+        DEBUG_PRINT("MszipDecompress: CreateDecompressor failed!");
+        return NULL;
+    }
+
+    ULONGLONG uncompressed_size_64 = *(PULONGLONG)(src + 8);
+    *out_len = (size_t)uncompressed_size_64;
+
+    decompressed_buffer = (unsigned char*)pfnHeapAlloc(pfnGetProcessHeap(), 0, *out_len);
+    if (decompressed_buffer == NULL) {
+        DEBUG_PRINT("MszipDecompress: HeapAlloc failed for decompression buffer!");
+        pfnCloseDecompressor(decompressor);
+        return NULL;
+    }
+    
+    if (!pfnDecompress(
+        decompressor,
+        src,
+        len,
+        decompressed_buffer,
+        *out_len,
+        &final_size
+    )) {
+        DEBUG_PRINT("MszipDecompress: Decompress function failed!");
+        pfnHeapFree(pfnGetProcessHeap(), 0, decompressed_buffer);
+        pfnCloseDecompressor(decompressor);
+        return NULL;
+    }
+
+    pfnCloseDecompressor(decompressor);
+    
+    DEBUG_PRINT("MszipDecompress: Successfully decompressed %zu bytes.", final_size);
+    *out_len = final_size;
+    return decompressed_buffer;
+}
