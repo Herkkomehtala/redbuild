@@ -71,8 +71,8 @@ def main():
         if is_compiler_job:
             final_filename = run_simple_generator(args.generator_type, options, current_filepath, args.original_filename)
         elif is_transformer_job:
-            current_filepath = run_stage('encoding', options.get('encoding'), current_filepath, args.original_filename)
             current_filepath = run_stage('compression', options.get('compression'), current_filepath, args.original_filename)
+            current_filepath = run_stage('encoding', options.get('encoding'), current_filepath, args.original_filename)
             final_filename = os.path.basename(current_filepath)
 
         result_filepath = os.path.join('/tmp/uploads', f"{job_name}.result")
