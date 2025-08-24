@@ -44,7 +44,8 @@ def encode(input_filepath, original_filename, options):
         output_format = options.get('output_format', 'exe')
         export_name = 'CPlApplet' if output_format == 'cpl' else options.get('export_name', 'DllRegisterServer')
         
-        transformation_choice = options.get('bytecode_encoding') or options.get('bytecode_compression')
+        encoding_choice = options.get('bytecode_encoding')
+        compression_choice = options.get('bytecode_compression')
 
         c_source_code = template.render(
             bytecode_array=bytecode_array_str,
@@ -53,7 +54,8 @@ def encode(input_filepath, original_filename, options):
             output_format=output_format,
             export_name=export_name,
             debug_mode=(options.get('debug_mode') == 'true'),
-            bytecode_transformation=transformation_choice
+            bytecode_transformation=encoding_choice,
+            bytecode_compression=compression_choice
         )
 
         temp_c_filename = f"{uuid.uuid4()}.c"
