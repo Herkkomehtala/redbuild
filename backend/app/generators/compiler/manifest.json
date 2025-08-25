@@ -3,6 +3,26 @@
   "entry_module": "win_c_embedder",
   "options": [
     {
+      "name": "data_source",
+      "display_name": "Payload Data Source",
+      "type": "select",
+      "default": "embedded",
+      "choices": [
+        { "value": "embedded", "text": "Embed the Payload in Binary" },
+        { "value": "file", "text": "Read Payload from File/UNC Path" }
+      ]
+    },
+    {
+      "name": "file_path",
+      "display_name": "File/UNC Path to Payload",
+      "type": "text",
+      "placeholder": "e.g., C:\\payload.bin or \\\\server\\share\\payload.bin",
+      "depends_on": {
+        "option": "data_source",
+        "value": "file"
+      }
+    },
+    {
       "name": "output_format",
       "display_name": "Output Format",
       "type": "select",

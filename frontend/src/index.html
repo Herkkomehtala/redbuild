@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Redbuild Payload Generator</title>
     <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <style>
         body { background-color: #212529; color: #f8f9fa; }
         .card { background-color: #343a40; border: 1px solid #495057; }
@@ -13,19 +14,11 @@
         .form-control:focus, .form-select:focus { background-color: #495057; color: #f8f9fa; border-color: #0d6efd; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
         .progress { background-color: #495057; }
         .hidden-option { display: none; }
-        .btn-group-radio label {
-            border-color: #6c757d;
-            background-color: #495057;
-            color: #f8f9fa;
-        }
-        .btn-group-radio input[type="radio"]:checked + label {
-            background-color: #0d6efd;
-            border-color: #0d6efd;
-        }
+        .btn-group-radio label { border-color: #6c757d; background-color: #495057; color: #f8f9fa; }
+        .btn-group-radio input[type="radio"]:checked + label { background-color: #0d6efd; border-color: #0d6efd; }
     </style>
 </head>
 <body class="d-flex align-items-center py-4 bg-dark">
-
 <main class="container" style="max-width: 700px;">
     <div class="card p-4 p-md-5 shadow rounded-3">
         <div class="text-center mb-4">
@@ -35,13 +28,8 @@
 
         <form id="upload-form">
             <div class="mb-3">
-                <label for="file-input" class="form-label">Input File</label>
-                <input class="form-control" type="file" id="file-input" name="file" required>
-            </div>
-
-            <div class="mb-3">
                 <label for="generator-type-select" class="form-label">Generator Type</label>
-                <select class="form-select" id="generator-type-select" required>
+                <select class="form-select" id="generator-type-select" name="generator_type" required>
                     <option selected disabled value="">Loading...</option>
                 </select>
             </div>
@@ -54,11 +42,9 @@
         <div id="status-container" class="mt-4"></div>
     </div>
 </main>
-
 <script src="js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const fileInput = document.getElementById('file-input');
     const uploadForm = document.getElementById('upload-form');
     const generatorTypeSelect = document.getElementById('generator-type-select');
     const optionsContainer = document.getElementById('options-container');
@@ -109,44 +95,72 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             optionsContainer.appendChild(containerDiv);
-        });
 
-        updateDependencies();
+            if (option.name === 'data_source') {
+                const fileInputContainer = document.createElement('div');
+                fileInputContainer.id = 'file-input-container';
+                fileInputContainer.className = 'mb-3 hidden-option';
+                fileInputContainer.innerHTML = `
+                    <label for="file-input" class="form-label">Input File (for embedding)</label>
+                    <input class="form-control" type="file" id="file-input" name="file">
+                `;
+                containerDiv.insertAdjacentElement('afterend', fileInputContainer);
+            }
+        });
+        
+        if (!generator.options.find(opt => opt.name === 'data_source')) {
+             const fileInputContainer = document.createElement('div');
+             fileInputContainer.id = 'file-input-container';
+             fileInputContainer.className = 'mb-3';
+             fileInputContainer.innerHTML = `
+                <label for="file-input" class="form-label">Input File</label>
+                <input class="form-control" type="file" id="file-input" name="file" required>
+             `;
+             optionsContainer.insertAdjacentElement('afterbegin', fileInputContainer);
+        }
 
         updateDependencies();
     }
-
     function updateDependencies() {
         const selectedType = generatorTypeSelect.value;
         if (!selectedType || !generatorsData[selectedType]) return;
-
         const generator = generatorsData[selectedType];
+
+        const dataSourceSelect = document.getElementById('option-data_source');
+        const fileInputContainer = document.getElementById('file-input-container');
+        if (dataSourceSelect && fileInputContainer) {
+            const showFileInput = dataSourceSelect.value === 'embedded';
+            fileInputContainer.classList.toggle('hidden-option', !showFileInput);
+            const fileInput = fileInputContainer.querySelector('#file-input');
+            if (fileInput) {
+                fileInput.required = showFileInput;
+            }
+        }
 
         generator.options.forEach(option => {
             if (option.depends_on) {
-                const parentOptionName = option.depends_on.option;
-                const requiredParentValue = option.depends_on.value;
-                
-                const parentElement = document.querySelector(`[name="${parentOptionName}"]:checked`) || document.getElementById(`option-${parentOptionName}`);
+                const parentElement = document.querySelector(`[name="${option.depends_on.option}"]:checked`) || document.getElementById(`option-${option.depends_on.option}`);
                 const childContainer = document.getElementById(`container-${option.name}`);
-
                 if (parentElement && childContainer) {
-                    childContainer.classList.toggle('hidden-option', parentElement.value !== requiredParentValue);
+                    let isVisible = false;
+                    const requiredValue = option.depends_on.value;
+                    if (Array.isArray(requiredValue)) {
+                        isVisible = requiredValue.includes(parentElement.value);
+                    } else {
+                        isVisible = parentElement.value === requiredValue;
+                    }
+                    childContainer.classList.toggle('hidden-option', !isVisible);
                 }
             }
         });
     }
 
     // --- UI Rendering Helper Functions ---
-    function renderRadioGroup(option) {
-        const driverDiv = document.createElement('div');
-        driverDiv.className = 'mb-3';
-        driverDiv.innerHTML = `<label class="form-label">${option.display_name}</label>`;
-        
+    function renderRadioGroup(option, containerDiv) {
+        containerDiv.innerHTML = `<label class="form-label">${option.display_name}</label>`;
         const btnGroup = document.createElement('div');
         btnGroup.className = 'btn-group w-100 btn-group-radio';
         btnGroup.setAttribute('role', 'group');
-
         option.choices.forEach(choice => {
             const radioId = `radio-${option.name}-${choice.value}`;
             const radio = document.createElement('input');
@@ -155,22 +169,16 @@ document.addEventListener('DOMContentLoaded', () => {
             radio.name = option.name;
             radio.id = radioId;
             radio.value = choice.value;
-            radio.autocomplete = 'off';
-            if (choice.value === option.default) {
-                radio.checked = true;
-            }
+            if (choice.value === option.default) radio.checked = true;
             radio.addEventListener('change', updateDependencies);
-
             const label = document.createElement('label');
             label.className = 'btn btn-outline-primary w-100';
             label.setAttribute('for', radioId);
             label.textContent = choice.text;
-
             btnGroup.appendChild(radio);
             btnGroup.appendChild(label);
         });
-        driverDiv.appendChild(btnGroup);
-        optionsContainer.appendChild(driverDiv);
+        containerDiv.appendChild(btnGroup);
     }
 
     function renderSelect(option, containerDiv) {
@@ -179,11 +187,17 @@ document.addEventListener('DOMContentLoaded', () => {
         select.className = 'form-select';
         select.id = `option-${option.name}`;
         select.name = option.name;
-        select.innerHTML = `<option value="">-- ${option.name === 'module' ? 'Select a module...' : 'None'} --</option>`;
+        select.innerHTML = `<option value="">-- ${option.default ? `Default (${option.default})` : 'Select...'} --</option>`;
         option.choices.forEach(choice => {
-            select.innerHTML += `<option value="${choice.value}">${choice.text}</option>`;
+            const opt = document.createElement('option');
+            opt.value = choice.value;
+            opt.textContent = choice.text;
+            if (choice.value === option.default) opt.selected = true;
+            select.appendChild(opt);
         });
-        select.value = option.default || '';
+        if (option.name === 'data_source') {
+            select.addEventListener('change', updateDependencies);
+        }
         containerDiv.appendChild(select);
     }
 
@@ -208,55 +222,52 @@ document.addEventListener('DOMContentLoaded', () => {
         input.name = option.name;
         input.value = 'true';
         input.checked = option.default === 'true';
-        
         const label = document.createElement('label');
         label.className = 'form-check-label';
         label.setAttribute('for', `option-${option.name}`);
         label.textContent = option.display_name;
-        
         containerDiv.appendChild(input);
         containerDiv.appendChild(label);
     }
 
     async function startProcessing(event) {
         event.preventDefault();
-        const file = fileInput.files[0];
-        const generatorType = generatorTypeSelect.value;
-
-        if (!file || !generatorType) {
-            updateStatus('Please select a file and a generator type.', 'bg-warning');
+        
+        const fileInput = document.getElementById('file-input'); 
+        const file = fileInput ? fileInput.files[0] : null;
+        
+        if (fileInput && fileInput.required && !file) {
+            updateStatus('Please select a file to process.', 'bg-warning');
             return;
         }
 
-        const tempFormData = new FormData(uploadForm);
-        const selectedOptions = {};
-        for (const [key, value] of tempFormData.entries()) {
-            if (key !== 'file' && key !== 'generator_type') {
-                if (value) { // Only include if a value was selected/entered.
-                    selectedOptions[key] = value;
-                }
-            }
+        const formData = new FormData(uploadForm);
+        if (file) {
+            formData.append('original_filename', file.name);
+        } else {
+            formData.append('original_filename', 'artifact');
         }
 
-        const finalFormData = new FormData();
-        finalFormData.append('file', file);
-        finalFormData.append('original_filename', file.name);
-        finalFormData.append('generator_type', generatorType); // Use the value we got at the start
-        finalFormData.append('options', JSON.stringify(selectedOptions));
+        const selectedOptions = {};
+        const keysToDelete = [];
+        for (const key of Array.from(formData.keys())) {
+            if (key !== 'file' && key !== 'generator_type' && key !== 'original_filename') {
+                const value = formData.get(key);
+                if (value) { selectedOptions[key] = value; }
+                keysToDelete.push(key);
+            }
+        }
+        keysToDelete.forEach(key => formData.delete(key));
+        formData.append('options', JSON.stringify(selectedOptions));
         
         updateStatus('Uploading file and starting job...', 'bg-info', 0);
 
         try {
-            const response = await fetch('/api/process', {
-                method: 'POST',
-                body: finalFormData,
-            });
-
+            const response = await fetch('/api/process', { method: 'POST', body: formData });
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.error || 'Failed to start job.');
             }
-
             const data = await response.json();
             pollStatus(data.task_id);
         } catch (error) {
@@ -267,38 +278,22 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateStatus(message, bgClass, progress = null) {
         let progressBarHtml = '';
         if (progress !== null) {
-            progressBarHtml = `
-                <div class="progress" style="height: 20px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated ${bgClass}" role="progressbar" style="width: ${progress}%;" aria-valuenow="${progress}"></div>
-                </div>
-            `;
+            progressBarHtml = `<div class="progress" style="height: 20px;"><div class="progress-bar progress-bar-striped progress-bar-animated ${bgClass}" role="progressbar" style="width: ${progress}%;" aria-valuenow="${progress}"></div></div>`;
         }
         statusContainer.innerHTML = `<div class="alert ${bgClass} text-white">${message}</div>${progressBarHtml}`;
     }
-    
     function showResult(filename) {
-        statusContainer.innerHTML += `
-            <div class="card-body bg-dark mt-3 rounded">
-                <h5>Artifact Ready:</h5>
-                <p class="text-white-50">${filename}</p>
-                <a href="/api/download/${filename}" class="btn btn-success" download>Download Artifact</a>
-            </div>
-        `;
+        statusContainer.innerHTML += `<div class="card-body bg-dark mt-3 rounded"><h5>Artifact Ready:</h5><p class="text-white-50">${filename}</p><a href="/api/download/${filename}" class="btn btn-success" download>Download Artifact</a></div>`;
     }
-
     function pollStatus(taskId) {
         if (pollingInterval) clearInterval(pollingInterval);
         let progress = 10;
         updateStatus(`Job submitted (ID: ${taskId.substring(0, 8)}...). Waiting for worker...`, 'bg-info', progress);
-
         pollingInterval = setInterval(async () => {
             try {
                 const response = await fetch(`/api/status/${taskId}`);
-                if (!response.ok) {
-                    throw new Error(`Server returned status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Server returned status: ${response.status}`);
                 const data = await response.json();
-                
                 switch (data.state) {
                     case 'SUCCESS':
                         clearInterval(pollingInterval);
@@ -328,6 +323,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2500);
     }
 
+    // --- Event Listeners ---
     generatorTypeSelect.addEventListener('change', onGeneratorTypeChange);
     uploadForm.addEventListener('submit', startProcessing);
     fetchAndBuildUI();
@@ -335,4 +331,3 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
-

