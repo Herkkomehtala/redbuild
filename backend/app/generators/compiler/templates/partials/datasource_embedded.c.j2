@@ -1,0 +1,9 @@
+unsigned char transformed_bytecode[] = { {{ bytecode_array }} };
+unsigned int transformed_bytecode_len = sizeof(transformed_bytecode);
+
+BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
+    *ppData = transformed_bytecode;
+    *pdwDataSize = transformed_bytecode_len;
+    DEBUG_PRINT("LoadData: Using embedded data source.");
+    return TRUE;
+}

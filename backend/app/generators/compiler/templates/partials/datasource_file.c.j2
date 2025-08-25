@@ -1,0 +1,35 @@
+char* remote_file_path = "{{ file_path }}";
+
+BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
+    HANDLE hFile;
+    
+    DEBUG_PRINT("LoadData: Reading data from remote file: %s", remote_file_path);
+    
+    hFile = pfnCreateFileA(remote_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        DEBUG_PRINT("LoadData: Failed to open file at %s", remote_file_path);
+        return FALSE;
+    }
+
+    *pdwDataSize = pfnGetFileSize(hFile, NULL);
+    if (*pdwDataSize == INVALID_FILE_SIZE) {
+        pfnCloseHandle(hFile);
+        return FALSE;
+    }
+
+    *ppData = (PBYTE)pfnHeapAlloc(pfnGetProcessHeap(), 0, *pdwDataSize);
+    if (*ppData == NULL) {
+        pfnCloseHandle(hFile);
+        return FALSE;
+    }
+
+    DWORD dwBytesRead = 0;
+    if (!pfnReadFile(hFile, *ppData, *pdwDataSize, &dwBytesRead, NULL) || dwBytesRead != *pdwDataSize) {
+        pfnHeapFree(pfnGetProcessHeap(), 0, *ppData);
+        pfnCloseHandle(hFile);
+        return FALSE;
+    }
+
+    pfnCloseHandle(hFile);
+    return TRUE;
+}
