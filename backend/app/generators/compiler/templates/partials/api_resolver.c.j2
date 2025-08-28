@@ -15,6 +15,10 @@ typedef BOOL (WINAPI *pHeapFree)(HANDLE, DWORD, LPVOID);
 typedef BOOL (WINAPI *pCreateDecompressor)(DWORD, PVOID, PDECOMPRESSOR_HANDLE);
 typedef BOOL (WINAPI *pDecompress)(DECOMPRESSOR_HANDLE, LPCVOID, SIZE_T, PVOID, SIZE_T, PSIZE_T);
 typedef BOOL (WINAPI *pCloseDecompressor)(DECOMPRESSOR_HANDLE);
+typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
+typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+
 
 // --- 2. Declare global variables to hold the resolved function pointers ---
 pVirtualAlloc pfnVirtualAlloc;
@@ -31,6 +35,9 @@ pCreateDecompressor pfnCreateDecompressor;
 pDecompress pfnDecompress;
 pCloseDecompressor pfnCloseDecompressor;
 pLoadLibraryA pfnLoadLibraryA;
+pCreateFileA pfnCreateFileA;
+pGetFileSize pfnGetFileSize;
+pReadFile pfnReadFile;
 
 void ResolveAPIs() {
     pGetModuleHandleA pfnGetModuleHandleA = (pGetModuleHandleA)((ULONG_PTR)GetModuleHandleA);
@@ -49,6 +56,9 @@ void ResolveAPIs() {
     pfnGetProcessHeap = (pGetProcessHeap)pfnGetProcAddress(hKernel32, "GetProcessHeap");
     pfnHeapAlloc = (pHeapAlloc)pfnGetProcAddress(hKernel32, "HeapAlloc");
     pfnHeapFree = (pHeapFree)pfnGetProcAddress(hKernel32, "HeapFree");
+    pfnCreateFileA = (pCreateFileA)pfnGetProcAddress(hKernel32, "CreateFileA");
+    pfnGetFileSize = (pGetFileSize)pfnGetProcAddress(hKernel32, "GetFileSize");
+    pfnReadFile = (pReadFile)pfnGetProcAddress(hKernel32, "ReadFile");
     
     HMODULE hNtdll = pfnGetModuleHandleA("ntdll.dll");
     if (hNtdll == NULL) { return; }

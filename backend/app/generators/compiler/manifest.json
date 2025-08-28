@@ -88,6 +88,16 @@
         { "value": "inprocess", "text": "In Process, No New Thread" },
         { "value": "newthread", "text": "In Process, New Thread" }
       ]
+    },
+    {
+      "name": "api_resolver",
+      "display_name": "API Resolution Method",
+      "type": "select",
+      "default": "hashed",
+      "choices": [
+        { "value": "string", "text": "No API hashing" },
+        { "value": "hashed", "text": "API Hashing" }
+      ]
     }
   ]
 }

@@ -48,6 +48,5 @@ int Base64Decode(const unsigned char *src, size_t len, unsigned char *decoded_ou
             decoded_out[out_idx++] = (unsigned char) (block[2] << 6 | block[3]);
         }
     }
-
     return 0; // Success
 }
