@@ -44,7 +44,7 @@
       "display_name": "Bytecode Encoding (Pre-Processing)",
       "type": "select",
       "choices": [
-        { "value": "", "text": "None (Raw Bytes)" },
+        { "value": "", "text": "None" },
         { "value": "base64_encoder", "text": "Base64 Encode" },
         { "value": "base85_encoder", "text": "Base85 Encode" }
       ]

@@ -112,7 +112,6 @@ void ResolveAPIs() {
     DWORD KERNEL32_HASH = {{ hash_kernel32_dll }};
     DWORD NTDLL_HASH = {{ hash_ntdll_dll }};
     DWORD CABINET_HASH = {{ hash_cabinet_dll }};
-    DEBUG_PRINT("ResolveAPIs: Running GetModuleHandleByHash");
     HMODULE hKernel32 = GetModuleHandleByHash(KERNEL32_HASH);
     HMODULE hNtdll = GetModuleHandleByHash(NTDLL_HASH);
     

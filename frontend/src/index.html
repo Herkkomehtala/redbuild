@@ -187,17 +187,20 @@ document.addEventListener('DOMContentLoaded', () => {
         select.className = 'form-select';
         select.id = `option-${option.name}`;
         select.name = option.name;
-        select.innerHTML = `<option value="">-- ${option.default ? `Default (${option.default})` : 'Select...'} --</option>`;
+
         option.choices.forEach(choice => {
             const opt = document.createElement('option');
             opt.value = choice.value;
             opt.textContent = choice.text;
-            if (choice.value === option.default) opt.selected = true;
             select.appendChild(opt);
         });
+        
+        select.value = option.default || '';
+        
         if (option.name === 'data_source') {
             select.addEventListener('change', updateDependencies);
         }
+        
         containerDiv.appendChild(select);
     }
 
