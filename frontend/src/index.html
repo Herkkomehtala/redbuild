@@ -157,10 +157,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- UI Rendering Helper Functions ---
     function renderRadioGroup(option, containerDiv) {
-        containerDiv.innerHTML = `<label class="form-label">${option.display_name}</label>`;
+        const driverDiv = document.createElement('div');
+        driverDiv.className = 'mb-3';
+        driverDiv.innerHTML = `<label class="form-label">${option.display_name}</label>`;
+        
         const btnGroup = document.createElement('div');
         btnGroup.className = 'btn-group w-100 btn-group-radio';
         btnGroup.setAttribute('role', 'group');
+
         option.choices.forEach(choice => {
             const radioId = `radio-${option.name}-${choice.value}`;
             const radio = document.createElement('input');
@@ -169,16 +173,22 @@ document.addEventListener('DOMContentLoaded', () => {
             radio.name = option.name;
             radio.id = radioId;
             radio.value = choice.value;
-            if (choice.value === option.default) radio.checked = true;
+            radio.autocomplete = 'off';
+            if (choice.value === option.default) {
+                radio.checked = true;
+            }
             radio.addEventListener('change', updateDependencies);
+
             const label = document.createElement('label');
             label.className = 'btn btn-outline-primary w-100';
             label.setAttribute('for', radioId);
             label.textContent = choice.text;
+
             btnGroup.appendChild(radio);
             btnGroup.appendChild(label);
         });
-        containerDiv.appendChild(btnGroup);
+        driverDiv.appendChild(btnGroup);
+        containerDiv.appendChild(driverDiv);
     }
 
     function renderSelect(option, containerDiv) {
@@ -235,42 +245,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function startProcessing(event) {
         event.preventDefault();
-        
-        const fileInput = document.getElementById('file-input'); 
-        const file = fileInput ? fileInput.files[0] : null;
-        
-        if (fileInput && fileInput.required && !file) {
-            updateStatus('Please select a file to process.', 'bg-warning');
+        const generatorType = generatorTypeSelect.value;
+        if (!generatorType) {
+            updateStatus('Please select a generator type.', 'bg-warning');
             return;
         }
 
         const formData = new FormData(uploadForm);
-        if (file) {
-            formData.append('original_filename', file.name);
-        } else {
-            formData.append('original_filename', 'artifact');
-        }
+        const fileInput = uploadForm.querySelector('[name="file"]');
+        
+        const dataSourceSelect = document.getElementById('option-data_source');
+        const isFileRequired = (generatorType === 'transformer') || (dataSourceSelect && dataSourceSelect.value === 'embedded');
 
+        if (isFileRequired && (!fileInput || !fileInput.files || fileInput.files.length === 0)) {
+            updateStatus('Please select a file to process for the chosen options.', 'bg-warning');
+            return;
+        }
+        
         const selectedOptions = {};
-        const keysToDelete = [];
-        for (const key of Array.from(formData.keys())) {
+        for (const [key, value] of formData.entries()) {
             if (key !== 'file' && key !== 'generator_type' && key !== 'original_filename') {
-                const value = formData.get(key);
-                if (value) { selectedOptions[key] = value; }
-                keysToDelete.push(key);
+                if (value) { 
+                    selectedOptions[key] = value;
+                }
             }
         }
-        keysToDelete.forEach(key => formData.delete(key));
-        formData.append('options', JSON.stringify(selectedOptions));
-        
-        updateStatus('Uploading file and starting job...', 'bg-info', 0);
 
+        const finalFormData = new FormData();
+        if (fileInput && fileInput.files[0]) {
+            const file = fileInput.files[0];
+            finalFormData.append('file', file);
+            finalFormData.append('original_filename', file.name);
+        }
+        finalFormData.append('generator_type', generatorType);
+        finalFormData.append('options', JSON.stringify(selectedOptions));
+        
+        updateStatus('Uploading and starting job...', 'bg-info', 0);
+        
         try {
-            const response = await fetch('/api/process', { method: 'POST', body: formData });
+            const response = await fetch('/api/process', {
+                method: 'POST',
+                body: finalFormData,
+            });
+
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.error || 'Failed to start job.');
             }
+            
+            const currentFileInput = uploadForm.querySelector('[name="file"]');
+            if (currentFileInput) {
+                currentFileInput.value = ''; // This clears the selection.
+            }
+
             const data = await response.json();
             pollStatus(data.task_id);
         } catch (error) {

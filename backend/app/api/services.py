@@ -49,7 +49,7 @@ def discover_generators():
 
 def start_generator_job(file_storage, original_filename, generator_type, options_json):
     """
-    Starts our generator jobs, orchestratings a multi-job pipeline if necessary.
+    Starts generator jobs, orchestrating a multi-job pipeline if necessary.
     """
     user_options = json.loads(options_json)
     
@@ -60,12 +60,19 @@ def start_generator_job(file_storage, original_filename, generator_type, options
     selected_transformations = {k: v for k, v in transformation_options.items() if v}
 
     input_filename = f"{uuid.uuid4()}"
-    input_filepath = os.path.join(SHARED_VOLUME_PATH, input_filename)
-    file_storage.save(input_filepath)
     
-    final_input_for_compiler = input_filename
+    data_source = user_options.get('data_source')
+    is_preprocessing_needed = (generator_type == 'compiler' and 
+                               data_source == 'embedded' and 
+                               selected_transformations)
 
-    if generator_type == 'compiler' and selected_transformations:
+    if is_preprocessing_needed:
+        if not file_storage:
+             raise ValueError("A file must be provided for pre-processing.")
+        
+        input_filepath = os.path.join(SHARED_VOLUME_PATH, input_filename)
+        file_storage.save(input_filepath)
+        
         logging.info("Transformation step required. Starting transformer job first...")
         transformer_job_name = f"job-transformer-preproc-{uuid.uuid4().hex[:6]}"
         transformer_job_body = _build_job_object(
@@ -79,6 +86,12 @@ def start_generator_job(file_storage, original_filename, generator_type, options
             
         logging.info(f"Transformer job complete. Intermediate artifact: {final_artifact_name}")
         final_input_for_compiler = final_artifact_name
+    else:
+        if file_storage:
+            input_filepath = os.path.join(SHARED_VOLUME_PATH, input_filename)
+            file_storage.save(input_filepath)
+        final_input_for_compiler = input_filename
+
 
     app_root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     manifest_path = os.path.join(app_root_path, 'generators', generator_type, 'manifest.json')

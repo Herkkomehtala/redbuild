@@ -7,6 +7,7 @@
       "display_name": "Encoding Stage (Optional)",
       "type": "select",
       "choices": [
+        { "value": "", "text": "None" },
         { "value": "base64_encoder", "text": "Base64 Encoder" },
         { "value": "base85_encoder", "text": "Base85 Encoder" }
       ]
@@ -16,9 +17,9 @@
       "display_name": "Compression Stage (Optional)",
       "type": "select",
       "choices": [
+        { "value": "", "text": "None" },
         { "value": "mszip_compressor", "text": "MSZIP Compressor" }
       ]
     }
   ]
 }
-
