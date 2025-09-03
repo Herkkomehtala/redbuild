@@ -4,6 +4,10 @@
 #include <compressapi.h>
 #include <ntstatus.h>
 #include <winternl.h>
+{% if data_source == 'http' %}
+#include <winhttp.h>
+#define INTERNET_SCHEME_UNKNOWN ((INTERNET_SCHEME)-1)
+{% endif %}
 {% if debug_mode %}
 #include <stdio.h>
 #include <debugapi.h>

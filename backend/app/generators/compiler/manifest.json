@@ -9,7 +9,8 @@
       "default": "embedded",
       "choices": [
         { "value": "embedded", "text": "Embed the Payload in Binary" },
-        { "value": "file", "text": "Read Payload from File/UNC Path" }
+        { "value": "file", "text": "Read Payload from File/UNC Path" },
+        { "value": "http", "text": "Read Payload from HTTP(S) URL" }
       ]
     },
     {
@@ -21,6 +22,36 @@
         "option": "data_source",
         "value": "file"
       }
+    },
+    {
+        "name": "url",
+        "display_name": "URL to Payload",
+        "type": "text",
+        "placeholder": "e.g., https://example.com/payload.bin",
+        "depends_on": {
+            "option": "data_source",
+            "value": "http"
+        }
+    },
+    {
+        "name": "user_agent",
+        "display_name": "HTTP User-Agent",
+        "type": "text",
+        "default": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "depends_on": {
+            "option": "data_source",
+            "value": "http"
+        }
+    },
+    {
+        "name": "trust_invalid_cert",
+        "display_name": "Trust Invalid HTTPS Certificates",
+        "type": "checkbox",
+        "default": "false",
+        "depends_on": {
+            "option": "data_source",
+            "value": "http"
+        }
     },
     {
       "name": "output_format",
