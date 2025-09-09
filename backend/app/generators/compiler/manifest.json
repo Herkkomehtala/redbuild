@@ -44,6 +44,16 @@
         }
     },
     {
+      "name": "obfuscate_strings",
+      "display_name": "Obfuscate URL & User-Agent Strings",
+      "type": "checkbox",
+      "default": "false",
+      "depends_on": {
+        "option": "data_source",
+        "value": "http"
+      }
+    },
+    {
         "name": "trust_invalid_cert",
         "display_name": "Trust Invalid HTTPS Certificates",
         "type": "checkbox",
