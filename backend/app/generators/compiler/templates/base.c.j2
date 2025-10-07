@@ -19,6 +19,8 @@
 #define PAYLOAD_RESOURCE_ID   101
 {% endif %}
 
+// --- Module handle definition ---
+HMODULE g_hModule = NULL;
 
 // We're using DEBUG_PRINT macro if debug mode is selected
 {% if debug_mode %}
@@ -52,7 +54,6 @@ char debug_buffer[512];
 {% if bytecode_compression == 'mszip_compressor' %}
     {% include 'partials/decompress_mszip.c.j2' %}
 {% endif %}
-
 
 // --- Function Forward Declarations ---
 BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize);
@@ -144,7 +145,7 @@ void WINAPI {{ export_name }}() {
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     if (fdwReason == DLL_PROCESS_ATTACH) {
-        // We're not executing from DllMain to avoid loaderlock
+        g_hModule = hinstDLL;
     }
     return TRUE;
 }
@@ -161,7 +162,9 @@ LONG APIENTRY CPlApplet(HWND hwndCPl, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
 }
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
-    if (fdwReason == DLL_PROCESS_ATTACH) { }
+    if (fdwReason == DLL_PROCESS_ATTACH) { 
+        g_hModule = hinstDLL;
+    }
     return TRUE;
 }
 
