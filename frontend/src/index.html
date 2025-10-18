@@ -221,10 +221,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         select.value = option.default || '';
         
-        if (option.name === 'data_source') {
-            select.addEventListener('change', updateDependencies);
-        }
-        
+        select.addEventListener('change', updateDependencies);
+
         containerDiv.appendChild(select);
     }
 

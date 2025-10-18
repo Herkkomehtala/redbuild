@@ -81,6 +81,16 @@
       "default": "false"
     },
     {
+      "name": "api_resolver",
+      "display_name": "API Resolution Method",
+      "type": "select",
+      "default": "hashed",
+      "choices": [
+        { "value": "string", "text": "No API hashing" },
+        { "value": "hashed", "text": "API Hashing" }
+      ]
+    },
+    {
       "name": "bytecode_encoding",
       "display_name": "Bytecode Encoding (Pre-Processing)",
       "type": "select",
@@ -127,18 +137,20 @@
       "default": "newthread",
       "choices": [
         { "value": "inprocess", "text": "In Process, No New Thread" },
-        { "value": "newthread", "text": "In Process, New Thread" }
+        { "value": "newthread", "text": "In Process, New Thread" },
+        { "value": "remoteapc", "text": "Remote APC"}
       ]
     },
     {
-      "name": "api_resolver",
-      "display_name": "API Resolution Method",
-      "type": "select",
-      "default": "hashed",
-      "choices": [
-        { "value": "string", "text": "No API hashing" },
-        { "value": "hashed", "text": "API Hashing" }
-      ]
+      "name": "target_process",
+       "display_name": "Target Process Name",
+       "type": "text",
+       "default": "RuntimeBroker.exe",
+       "placeholder": "RuntimeBroker.exe",
+       "depends_on": {
+           "option": "execution_method",
+           "value": "remoteapc"
+        }
     }
   ]
 }
