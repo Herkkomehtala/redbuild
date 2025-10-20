@@ -138,7 +138,7 @@
       "choices": [
         { "value": "inprocess", "text": "In Process, No New Thread" },
         { "value": "newthread", "text": "In Process, New Thread" },
-        { "value": "remoteapc", "text": "Remote APC"}
+        { "value": "remoteapc", "text": "Early Bird Injection"}
       ]
     },
     {
@@ -151,6 +151,13 @@
            "option": "execution_method",
            "value": "remoteapc"
         }
+    },
+    {
+        "name": "obfuscate_execution_strings",
+        "display_name": "Obfuscate Strings",
+        "type": "checkbox",
+        "default": "false",
+        "depends_on": { "option": "execution_method", "value": "remoteapc" }
     }
   ]
 }
