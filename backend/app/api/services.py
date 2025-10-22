@@ -15,9 +15,12 @@ from kubernetes.client import (
 # --- Configuration ---
 SHARED_VOLUME_PATH = '/tmp/uploads'
 GENERATOR_IMAGE_MAP = {
-    "transformer": "redbuild-backend",
-    "compiler": "win-c-compiler-worker"
+    "transformer": os.getenv("REDBUILD_BACKEND_IMAGE", "redbuild-backend"),
+    "compiler": os.getenv("WIN_C_COMPILER_WORKER_IMAGE", "win-c-compiler-worker")
 }
+
+logging.info(f"Using transformer image: {GENERATOR_IMAGE_MAP['transformer']}")
+logging.info(f"Using compiler image: {GENERATOR_IMAGE_MAP['compiler']}")
 
 # --- Service Functions ---
 def discover_generators():

@@ -6,11 +6,11 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: api
+      app: redbuild-backend
   template:
     metadata:
       labels:
-        app: api
+        app: redbuild-backend
     spec:
       serviceAccountName: job-manager-sa
       containers:
@@ -19,11 +19,6 @@ spec:
         command: ["python", "run.py"]
         ports:
         - containerPort: 5000
-        env:
-        - name: REDBUILD_BACKEND_IMAGE
-          value: "{{.REDBUILD_BACKEND_IMAGE}}"
-        - name: WIN_C_COMPILER_WORKER_IMAGE
-          value: "{{.WIN_C_COMPILER_WORKER_IMAGE}}"
         volumeMounts:
         - name: uploads-storage
           mountPath: /tmp/uploads
@@ -31,4 +26,3 @@ spec:
       - name: uploads-storage
         persistentVolumeClaim:
           claimName: shared-uploads-pvc
-

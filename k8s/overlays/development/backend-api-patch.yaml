@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+spec:
+  template:
+    spec:
+      containers:
+      - name: api
+        env:
+        - name: REDBUILD_BACKEND_IMAGE
+          value: "redbuild-backend:1af6f3743a6f546aab879839114417dc01931994f6969c3fffc07316a9b44b24"
+        - name: WIN_C_COMPILER_WORKER_IMAGE
+          value: "win-c-compiler-worker:c5cc494cb37ea30553be4851d9f42517c74f5add094d5e79b3824397090681c6"

@@ -1,11 +1,8 @@
-apiVersion: skaffold/v2beta29
+apiVersion: skaffold/v4beta13
 kind: Config
 metadata:
   name: redbuild-app
 build:
-  tagPolicy:
-    envTemplate:
-      template: "{{.IMAGE_NAME}}:{{.TAG}}"
   local:
     push: false
   artifacts:
@@ -21,11 +18,48 @@ build:
       context: backend
       docker:
         dockerfile: generators/compiler/Dockerfile
+    # We create the real image tags for dev environments using the manifest generator (hack to circumvent skaffold giving old image tag to backend-api) 
+    - image: manifest-generator
+      custom:
+        buildCommand: |
+            set -e
+            
+            echo "Running manifest generator build..." >&2
+            mkdir -p .skaffold
+            
+            export REDBUILD_BACKEND_IMAGE=$REDBUILD_BACKEND_IMAGE_TAG
+            export WIN_C_COMPILER_WORKER_IMAGE=$WIN_C_COMPILER_WORKER_IMAGE_TAG
+
+            if [ -z "$WIN_C_COMPILER_WORKER_IMAGE" ]; then
+              echo "Error: WIN_C_COMPILER_WORKER_IMAGE tag is empty. Aborting." >&2
+              exit 1
+            fi
+            echo "Patching with backend image: $REDBUILD_BACKEND_IMAGE" >&2
+            echo "Patching with worker image: $WIN_C_COMPILER_WORKER_IMAGE" >&2
+
+            rm -f k8s/overlays/development/backend-api-patch.yaml
+            envsubst '$REDBUILD_BACKEND_IMAGE $WIN_C_COMPILER_WORKER_IMAGE' < k8s/overlays/development/backend-api-patch.template.yaml > k8s/overlays/development/backend-api-patch.yaml
+
+            echo "Rendering final kustomize manifest..." >&2
+            kubectl kustomize k8s/overlays/development > .skaffold/rendered.yaml
+            
+            echo "Building dummy artifact..." >&2
+            cat <<EOF | docker build -t $IMAGE -
+            FROM scratch
+            LABEL skaffold.dev/dummy-artifact="true"
+            EOF
+      requires:
+        - image: redbuild-backend
+          alias: REDBUILD_BACKEND_IMAGE_TAG
+        - image: win-c-compiler-worker
+          alias: WIN_C_COMPILER_WORKER_IMAGE_TAG
+
+manifests:
+  rawYaml:
+    - ".skaffold/rendered.yaml"
 
 deploy:
-  kubectl:
-    manifests:
-      - k8s/*.yaml
+  kubectl: {}
 
 portForward:
   - resourceType: service
@@ -36,4 +70,3 @@ portForward:
     resourceName: backend-api-service
     port: 5000
     localPort: 5001
-

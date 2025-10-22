@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: job-manager-sa
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: job-manager-role
+  namespace: default
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - jobs/status
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - pods/log
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: job-manager-binding
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: job-manager-role
+subjects:
+- kind: ServiceAccount
+  name: job-manager-sa
+  namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api-service
+spec:
+  ports:
+  - port: 5000
+    protocol: TCP
+    targetPort: 5000
+  selector:
+    app: redbuild-backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: redbuild-frontend
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-uploads-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: standard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redbuild-backend
+  template:
+    metadata:
+      labels:
+        app: redbuild-backend
+    spec:
+      containers:
+      - command:
+        - python
+        - run.py
+        env:
+        - name: REDBUILD_BACKEND_IMAGE
+          value: redbuild-backend:1af6f3743a6f546aab879839114417dc01931994f6969c3fffc07316a9b44b24
+        - name: WIN_C_COMPILER_WORKER_IMAGE
+          value: win-c-compiler-worker:c5cc494cb37ea30553be4851d9f42517c74f5add094d5e79b3824397090681c6
+        image: redbuild-backend
+        name: api
+        ports:
+        - containerPort: 5000
+        volumeMounts:
+        - mountPath: /tmp/uploads
+          name: uploads-storage
+      serviceAccountName: job-manager-sa
+      volumes:
+      - name: uploads-storage
+        persistentVolumeClaim:
+          claimName: shared-uploads-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redbuild-frontend
+  template:
+    metadata:
+      labels:
+        app: redbuild-frontend
+    spec:
+      containers:
+      - image: redbuild-frontend
+        name: frontend
+        ports:
+        - containerPort: 80

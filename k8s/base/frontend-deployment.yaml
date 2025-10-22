@@ -6,12 +6,16 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: frontend
+      app: redbuild-frontend
   template:
     metadata:
       labels:
-        app: frontend
+        app: redbuild-frontend
     spec:
       containers:
       - name: frontend
         image: redbuild-frontend
+        ports:
+        - containerPort: 80
+
+

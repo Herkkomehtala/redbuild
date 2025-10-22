@@ -1,0 +1,6 @@
+resources:
+  - api-rbac.yaml
+  - backend-api-deployment.yaml
+  - frontend-deployment.yaml
+  - shared-volume-pvc.yaml
+  - services.yaml
