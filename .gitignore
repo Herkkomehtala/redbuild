@@ -66,6 +66,7 @@ out.txt
 /uploads/
 /tmp/
 skaffold
+.skaffold/
 skaffold.exe
 .DS_Store
 .AppleDouble
