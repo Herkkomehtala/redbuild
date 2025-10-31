@@ -13,6 +13,7 @@ from kubernetes.client import (
 )
 
 # --- Configuration ---
+SHARED_PVC_NAME = os.getenv("SHARED_PVC_NAME", "shared-uploads-pvc")
 SHARED_VOLUME_PATH = '/tmp/uploads'
 GENERATOR_IMAGE_MAP = {
     "transformer": os.getenv("REDBUILD_BACKEND_IMAGE", "redbuild-backend"),
@@ -21,6 +22,7 @@ GENERATOR_IMAGE_MAP = {
 
 logging.info(f"Using transformer image: {GENERATOR_IMAGE_MAP['transformer']}")
 logging.info(f"Using compiler image: {GENERATOR_IMAGE_MAP['compiler']}")
+logging.info(f"Using shared PVC: {SHARED_PVC_NAME}")
 
 # --- Service Functions ---
 def discover_generators():
@@ -159,7 +161,7 @@ def _build_job_object(job_name, input_filename, original_filename, generator_typ
             restart_policy="Never", containers=[container],
             volumes=[V1Volume(
                 name="uploads-storage",
-                persistent_volume_claim=V1PersistentVolumeClaimVolumeSource(claim_name="shared-uploads-pvc")
+                persistent_volume_claim=V1PersistentVolumeClaimVolumeSource(claim_name=SHARED_PVC_NAME)
             )]
         )
     )

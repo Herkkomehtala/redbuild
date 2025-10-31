@@ -138,7 +138,7 @@
       "choices": [
         { "value": "inprocess", "text": "In Process, No New Thread" },
         { "value": "newthread", "text": "In Process, New Thread" },
-        { "value": "remoteapc", "text": "Early Bird Injection"}
+        { "value": "remoteapc", "text": "Early Cryo Bird Injection"}
       ]
     },
     {

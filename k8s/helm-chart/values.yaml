@@ -1,0 +1,38 @@
+frontend:
+  image: "redbuild-frontend:latest"
+
+backend:
+  image: "redbuild-backend:latest"
+  workerImage: "win-c-compiler-worker:latest"
+
+replicaCount: 1
+
+service:
+  frontend:
+    type: ClusterIP
+    port: 80
+  backend:
+    type: ClusterIP
+    port: 5000
+
+ingress:
+  enabled: true  # <-- Change this to true
+  className: "nginx" # <-- Add this line
+  hosts:
+    - host: redbuild.local # <-- Add a test hostname
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls:
+
+
+rbac:
+  create: true
+  serviceAccountName: job-manager-sa
+
+pvc:
+  create: true
+  storageClassName: standard
+  size: "2Gi"
+  accessModes:
+    - ReadWriteMany
