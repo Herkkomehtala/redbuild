@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Release.Name }}-backend-api
+  labels:
+    app.kubernetes.io/name: {{.Chart.Name }}-backend
+    helm.sh/chart: {{.Chart.Name }}-{{.Chart.Version }}
+    app.kubernetes.io/instance: {{.Release.Name }}
+    app.kubernetes.io/managed-by: {{.Release.Service }}
+spec:
+  replicas: {{.Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: redbuild-backend
+      app.kubernetes.io/instance: {{.Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: redbuild-backend
+        app.kubernetes.io/instance: {{.Release.Name }}
+    spec:
+      {{- if.Values.rbac.create }}
+      serviceAccountName: {{.Values.rbac.serviceAccountName }}
+      {{- end }}
+      containers:
+      - name: api
+        image: {{.Values.backend.image }}
+        imagePullPolicy: IfNotPresent
+        command:
+          - python
+          - run.py
+        env:
+          - name: REDBUILD_BACKEND_IMAGE
+            value: {{.Values.backend.image }}
+          - name: WIN_C_COMPILER_WORKER_IMAGE
+            value: {{.Values.backend.workerImage }}
+          # - name: FLASK_ENV
+          #   value: production
+          - name: SHARED_PVC_NAME
+            value: "{{.Release.Name }}-shared-uploads"
+        ports:
+        - containerPort: 5000
+          name: http-api
+
+        volumeMounts:
+        - name: uploads-storage
+          mountPath: /tmp/uploads
+      volumes:
+      - name: uploads-storage
+        {{- if.Values.pvc.create }}
+        persistentVolumeClaim:
+          claimName: {{.Release.Name }}-shared-uploads
+        {{- else }}
+        emptyDir: {}
+        {{- end }}

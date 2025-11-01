@@ -35,7 +35,8 @@ def _get_api_hashes():
         "RtlZeroMemory", "FindResourceA", "LoadResource", "LockResource", "SizeofResource",
         "CreateProcessA", "VirtualAllocEx", "WriteProcessMemory", "QueueUserAPC", "ResumeThread",
         "lstrlenA", "GetEnvironmentVariableA", "VirtualProtectEx", "GetLastError",
-        "NtCreateSection", "NtMapViewOfSection"
+        "NtCreateSection", "NtMapViewOfSection", "SleepEx", "NtCreateJobObject",
+        "NtSetInformationJobObject", "NtAssignProcessToJobObject"
     ]
     module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL"]
     

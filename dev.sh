@@ -8,6 +8,10 @@
 # Exit immediately if any command exits with a non-zero status.
 set -e
 
+echo "Ensuring .skaffold directory exists for manifest generation..."
+mkdir -p .skaffold
+touch .skaffold/rendered.yaml
+
 echo "INFO: Checking Minikube status..."
 
 # Redirect stdout and stderr to /dev/null to check only the exit code of 'minikube status'.
