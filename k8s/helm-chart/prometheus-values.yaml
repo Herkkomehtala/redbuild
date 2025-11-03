@@ -1,0 +1,19 @@
+grafana:
+  enabled: true
+  
+  additionalDataSources:
+    - name: "Loki"
+      type: "loki"
+      access: "proxy"
+      url: "http://loki-gateway.monitoring.svc.cluster.local" 
+      jsonData:
+        derivedFields:
+          - datasourceUid: 'prometheus'
+            matcherRegex: 'cluster="([^"]+)"'
+            name: 'cluster'
+
+kubelet:
+  enabled: true
+  serviceMonitor:
+    https: true
+    insecure_skip_verify: true # Disable in prod

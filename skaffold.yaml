@@ -18,18 +18,7 @@ build:
       context: backend
       docker: { dockerfile: generators/compiler/Dockerfile }
 
-# --- GLOBAL DEPLOY & PORT FORWARD ---
-deploy:
-  helm:
-    releases:
-      - name: redbuild-app
-        chartPath: ./k8s/helm-chart
-        setValueTemplates:
-          frontend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_frontend}}'
-          backend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_backend}}'
-          backend.workerImage: '{{.IMAGE_FULLY_QUALIFIED_win_c_compiler_worker}}'
-
-
+# --- GLOBAL PORT FORWARD ---
 portForward:
   - resourceType: service
     resourceName: frontend-service
@@ -62,12 +51,53 @@ profiles:
         - image: win-c-compiler-worker
           context: backend
           docker: { dockerfile: generators/compiler/Dockerfile }
+    deploy:
+      helm:
+        releases:
+          - name: redbuild-app
+            chartPath: ./k8s/helm-chart
+            setValueTemplates:
+              frontend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_frontend}}'
+              backend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_backend}}'
+              backend.workerImage: '{{.IMAGE_FULLY_QUALIFIED_win_c_compiler_worker}}'
 
+  # --- MONITORING PROFILE ---
+  - name: monitoring
+    deploy:
+      helm:
+        releases:
+          - name: prometheus
+            repo: https://prometheus-community.github.io/helm-charts
+            remoteChart: kube-prometheus-stack
+            namespace: monitoring
+            createNamespace: true
+            wait: true
+            valuesFiles:
+              - k8s/helm-chart/prometheus-values.yaml
 
+          - name: loki
+            repo: https://grafana.github.io/helm-charts
+            remoteChart: loki-stack
+            namespace: monitoring
+            createNamespace: true
+            wait: true
+            valuesFiles:
+              - k8s/helm-chart/loki-values.yaml
+
+          - name: alloy
+            repo: https://grafana.github.io/helm-charts
+            remoteChart: alloy
+            namespace: monitoring
+            createNamespace: true
+            wait: true
+            valuesFiles:
+              - k8s/helm-chart/alloy-values.yaml
+
+  # --- PROD PROFILES ---
   - name: prod
     build:
       local:
-        push: true # Explicitly set for clarity. This is the default for remote clusters.
+        push: true
 
   - name: local-prod
     build:
