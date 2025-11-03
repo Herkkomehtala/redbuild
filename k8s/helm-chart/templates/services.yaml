@@ -13,6 +13,7 @@ spec:
   - port: {{ .Values.service.backend.port }}
     targetPort: 5000
     protocol: TCP
+    name: http-api
   selector:
     app: redbuild-backend
     app.kubernetes.io/instance: {{ .Release.Name }}

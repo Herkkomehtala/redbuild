@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{.Release.Name }}-backend-monitor
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{.Release.Namespace }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{.Chart.Name }}-backend
+      app.kubernetes.io/instance: {{.Release.Name }}
+  endpoints:
+  - port: http-api
+    path: /metrics
+    interval: 15s

@@ -9,7 +9,7 @@ echo "INFO: Checking Minikube status..."
 
 if ! minikube status > /dev/null 2>&1; then
   echo "INFO: Minikube is not running. Starting cluster with the Docker driver..."
-  minikube start --driver=docker --memory=4g --cpus=2
+  minikube start --driver=docker --memory=8g --cpus=4
 else
   echo "INFO: Minikube is already running."
 fi

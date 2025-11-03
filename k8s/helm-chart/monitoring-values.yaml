@@ -1,0 +1,26 @@
+# Redbuild is in default namespace
+namespacesToMonitor:
+  - default
+
+cloud:
+  logs:
+    enabled: false
+  metrics:
+    enabled: false
+  traces:
+    enabled: false
+
+local:
+  grafana:
+    enabled: true
+  
+  logs:
+    enabled: true
+  metrics:
+    enabled: true
+
+  traces:
+    enabled: false
+  
+  minio:
+    enabled: true

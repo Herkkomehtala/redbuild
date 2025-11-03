@@ -3,6 +3,25 @@ import json
 from flask import request, jsonify, current_app
 from . import bp
 from . import services
+from prometheus_client import Counter
+
+# --- METRICS DEFINITIONS ---
+JOBS_STARTED_TOTAL = Counter(
+    'redbuild_jobs_started_total',
+    'Total number of processing jobs started',
+    ['generator_type']
+)
+
+JOB_STATUS_CHECKS_TOTAL = Counter(
+    'redbuild_job_status_checks_total',
+    'Total number of job status checks'
+)
+
+FILE_DOWNLOADS_TOTAL = Counter(
+    'redbuild_file_downloads_total',
+    'Total number of files downloaded'
+)
+
 
 @bp.route('/options', methods=['GET'])
 def get_options():
@@ -41,20 +60,22 @@ def process_file():
         task_id = services.start_generator_job(
             file_storage, original_filename, generator_type, json.dumps(options)
         )
+        JOBS_STARTED_TOTAL.labels(generator_type=generator_type).inc()
         return jsonify({"task_id": task_id}), 202
         
     except Exception as e:
         current_app.logger.error(f"Error starting job: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-# --- Status and Download endpoints remain the same ---
 @bp.route('/status/<job_name>', methods=['GET'])
 def get_status(job_name):
+    JOB_STATUS_CHECKS_TOTAL.inc()
     status_data = services.check_job_status(job_name)
     status_code = 404 if status_data.get('state') == 'NOT_FOUND' else 200
     return jsonify(status_data), status_code
 
 @bp.route('/download/<filename>', methods=['GET'])
 def download_file(filename):
+    FILE_DOWNLOADS_TOTAL.inc()
     return services.download_result_file(filename)
 

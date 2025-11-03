@@ -1,0 +1,62 @@
+alloy:
+  controller:
+    type: 'daemonset'
+
+    extraVolumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: containers
+        hostPath:
+          path: /var/log/containers
+          type: DirectoryOrCreate
+
+    extraVolumeMounts:
+      - name: varlog
+        mountPath: /var/log
+      - name: containers
+        mountPath: /var/log/containers
+        readOnly: true
+
+    configMap:
+      create: true
+      content: |
+        discovery.kubernetes "pods" {
+          role = "pod"
+        }
+
+        discovery.relabel "filtered_pods" {
+          targets = discovery.kubernetes.pods.targets
+
+          relabel_rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            regex         = "default|monitoring"
+            action        = "keep"
+          }
+        }
+
+        loki.source.kubernetes "pod_logs" {
+          targets    = discovery.relabel.filtered_pods.output
+          forward_to = [loki.write.default.receiver]
+
+          relabel_rules = [
+            {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            },
+            {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            },
+            {
+              source_labels = ["__meta_kubernetes_container_name"]
+              target_label  = "container"
+            }
+          ]
+        }
+
+        loki.write "default" {
+          endpoint {
+            url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+          }
+        }
