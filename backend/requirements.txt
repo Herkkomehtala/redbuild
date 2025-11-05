@@ -1,3 +1,4 @@
 Flask==3.0.3
 kubernetes==30.1.0
 prometheus-client==0.23.1
+pillow==11.3.0
