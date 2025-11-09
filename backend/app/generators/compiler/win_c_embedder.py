@@ -196,23 +196,23 @@ def encode(input_filepath, original_filename, options):
     print(f"INFO: Starting high-level compilation orchestration for '{original_filename}'")
     temp_files_to_clean = []
     try:
-        # Prepare all variables needed by the C template
         template_vars = _prepare_template_context(options, input_filepath)
         
-        # Render the C source code from the main template
+        payload_bytes = b""
+        if options.get('data_source') == 'embedded':
+            with open(input_filepath, "rb") as f:
+                payload_bytes = f.read()
+            template_vars['embedded_data_size'] = len(payload_bytes)
+        
         template_dir = os.path.join(os.path.dirname(__file__), 'templates')
         env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
         template = env.get_template('base.c.j2')
         c_source_code = template.render(**template_vars)
 
-        # Compile the C source code into a C object file
         c_object_path = _compile_c_source(c_source_code, temp_files_to_clean)
         object_files_to_link = [c_object_path]
         
-        # If using embedded data source, compile the payload into PNG resource object files
         if options.get('data_source') == 'embedded':
-            with open(input_filepath, "rb") as f:
-                payload_bytes = f.read()
             resource_object_path = _compile_png_resources(payload_bytes, temp_files_to_clean)
             object_files_to_link.append(resource_object_path)
             

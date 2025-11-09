@@ -28,6 +28,13 @@ HMODULE g_hModule = NULL;
 
 // We're using DEBUG_PRINT macro if debug mode is selected
 {% if debug_mode %}
+DWORD djb2_hash_bytes(PBYTE data, size_t len) {
+    DWORD hash = 5381;
+    for (size_t i = 0; i < len; i++) {
+        hash = ((hash << 5) + hash) + data[i]; // hash * 33 + c
+    }
+    return hash;
+}
 char debug_buffer[512];
 #define DEBUG_PRINT(fmt, ...) \
     do { \
@@ -89,6 +96,11 @@ void Run() {
         DEBUG_PRINT("Run: Failed to load initial data");
         return;
     }
+
+    {% if debug_mode %}
+    DWORD loaded_hash = djb2_hash_bytes(initial_data, initial_len);
+    DEBUG_PRINT("Run: Data loaded. Size: %lu, Hash: 0x%08X", initial_len, loaded_hash);
+    {% endif %}
 
     current_data = initial_data;
     current_len = initial_len;
