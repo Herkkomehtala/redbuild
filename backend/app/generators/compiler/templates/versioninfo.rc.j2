@@ -1,0 +1,34 @@
+#pragma code_page(65001)
+
+#include <winver.h>
+
+{% if version_info_mode != 'none' %}
+1 VERSIONINFO
+FILEVERSION     {{ version_info_file_version_nums | replace(".", ",") }}
+PRODUCTVERSION  {{ version_info_product_version_nums | replace(".", ",") }}
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0" // Language: U.S. English, Character Set: Unicode
+        BEGIN
+            VALUE "CompanyName",      L"{{ version_info_company_name }}\0"
+            VALUE "FileDescription",  L"{{ version_info_file_description }}\0"
+            VALUE "FileVersion",      L"{{ version_info_file_version_str }}\0"
+            VALUE "InternalName",     L"{{ version_info_internal_name }}\0"
+            VALUE "LegalCopyright",   L"{{ version_info_legal_copyright }}\0"
+            VALUE "OriginalFilename", L"{{ version_info_original_filename }}\0"
+            VALUE "ProductName",      L"{{ version_info_product_name }}\0"
+            VALUE "ProductVersion",   L"{{ version_info_product_version_str }}\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+{% endif %}

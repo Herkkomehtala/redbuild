@@ -29,6 +29,28 @@
         .form-check-label {
             color: #f8f9fa;
         }
+        .version-info-inset-group {
+            padding-top: 1rem;
+	    padding-bottom: 1rem;
+            margin-top: 0.5rem;
+            
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem 1rem;
+        }
+        .version-info-inset-group > div {
+            margin-bottom: 0 !important;
+        }
+        .version-info-inset-group .form-label {
+            font-size: 0.85rem;
+            margin-bottom: 0.25rem;
+            color: #adb5bd;
+        }
+        .version-info-group legend {
+            color: #ced4da;
+            width: auto;
+            margin-bottom: 0.5rem;
+        }
     </style>
 </head>
 <body class="d-flex align-items-center py-4 bg-dark">
@@ -93,11 +115,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const generator = generatorsData[selectedType];
         
+        let versionInfoGroup = null;
+        let versionInfoInsetGroup = null; 
+        if (generator.options.some(opt => opt.name.startsWith('version_info_'))) {
+            versionInfoGroup = document.createElement('fieldset');
+            versionInfoGroup.className = 'version-info-group';
+            versionInfoGroup.innerHTML = '<legend>Version Information</legend>';
+
+            versionInfoInsetGroup = document.createElement('div');
+            versionInfoInsetGroup.className = 'version-info-inset-group';
+        }
+
+        if (!generator.options.find(opt => opt.name === 'data_source')) {
+             const fileInputContainer = document.createElement('div');
+             fileInputContainer.id = 'file-input-container';
+             fileInputContainer.className = 'mb-3';
+             fileInputContainer.innerHTML = `
+                 <label for="file-input" class="form-label">Input File</label>
+                 <input class="form-control" type="file" id="file-input" name="file" required>
+             `;
+             optionsContainer.appendChild(fileInputContainer);
+        }
+        
         generator.options.forEach(option => {
             const containerDiv = document.createElement('div');
-            containerDiv.className = 'mb-3';
-            containerDiv.id = `container-${option.name}`;
+            const isVersionInfoField = option.name.startsWith('version_info_') && option.name !== 'version_info_template_select';
+            const isVersionInfoTemplate = option.name === 'version_info_template_select';
 
+            containerDiv.className = 'mb-3'; // All fields get this class
+            containerDiv.id = `container-${option.name}`;
+            
             if (option.type === 'select' && option.name === 'output_format') {
                 renderRadioGroup(option, containerDiv);
             } else if (option.type === 'select') {
@@ -108,7 +155,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderCheckbox(option, containerDiv);
             }
             
-            optionsContainer.appendChild(containerDiv);
+            if (isVersionInfoTemplate && versionInfoGroup) {
+                versionInfoGroup.appendChild(containerDiv);
+            } else if (isVersionInfoField && versionInfoInsetGroup) {
+                versionInfoInsetGroup.appendChild(containerDiv);
+            } else {
+                optionsContainer.appendChild(containerDiv);
+            }
 
             if (option.name === 'data_source') {
                 const fileInputContainer = document.createElement('div');
@@ -121,24 +174,43 @@ document.addEventListener('DOMContentLoaded', () => {
                 containerDiv.insertAdjacentElement('afterend', fileInputContainer);
             }
         });
-        
-        if (!generator.options.find(opt => opt.name === 'data_source')) {
-             const fileInputContainer = document.createElement('div');
-             fileInputContainer.id = 'file-input-container';
-             fileInputContainer.className = 'mb-3';
-             fileInputContainer.innerHTML = `
-                <label for="file-input" class="form-label">Input File</label>
-                <input class="form-control" type="file" id="file-input" name="file" required>
-             `;
-             optionsContainer.insertAdjacentElement('afterbegin', fileInputContainer);
+
+        if (versionInfoInsetGroup) {
+            versionInfoGroup.appendChild(versionInfoInsetGroup);
+        }
+        if (versionInfoGroup) {
+            optionsContainer.appendChild(versionInfoGroup);
         }
 
         updateDependencies();
     }
+
+
+
     function updateDependencies() {
         const selectedType = generatorTypeSelect.value;
         if (!selectedType || !generatorsData[selectedType]) return;
         const generator = generatorsData[selectedType];
+
+        const outputFormatEl = document.querySelector('[name="output_format"]:checked');
+        const templateSelectEl = document.getElementById('option-version_info_template_select');
+        
+        if (outputFormatEl && templateSelectEl && generator.version_info_templates) {
+            const currentFormat = outputFormatEl.value;
+            const templates = generator.version_info_templates[currentFormat] || [];
+            
+            const currentValue = templateSelectEl.value;
+            
+            templateSelectEl.innerHTML = '<option value="">-- Load a Preset --</option>';
+            templates.forEach(template => {
+                const opt = document.createElement('option');
+                opt.value = template.name;
+                opt.textContent = template.name;
+                templateSelectEl.appendChild(opt);
+            });
+            
+            templateSelectEl.value = currentValue;
+        }
 
         const dataSourceSelect = document.getElementById('option-data_source');
         const fileInputContainer = document.getElementById('file-input-container');
@@ -167,6 +239,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+    }
+
+    function onTemplateSelect(event) {
+        const selectedTemplateName = event.target.value;
+        if (!selectedTemplateName) return; // User selected "Load a Preset"
+
+        const generator = generatorsData[generatorTypeSelect.value];
+        const outputFormat = document.querySelector('[name="output_format"]:checked').value;
+        const templates = generator.version_info_templates[outputFormat] || [];
+        
+        const templateData = templates.find(t => t.name === selectedTemplateName);
+        if (!templateData) return;
+
+        for (const key in templateData) {
+            if (key === 'name') continue;
+            const inputId = `option-version_info_${key}`;
+            const inputEl = document.getElementById(inputId);
+            if (inputEl) {
+                inputEl.value = templateData[key];
+            }
+        }
     }
 
     // --- UI Rendering Helper Functions ---
@@ -212,22 +305,30 @@ document.addEventListener('DOMContentLoaded', () => {
         select.id = `option-${option.name}`;
         select.name = option.name;
 
-        option.choices.forEach(choice => {
-            const opt = document.createElement('option');
-            opt.value = choice.value;
-            opt.textContent = choice.text;
-            select.appendChild(opt);
-        });
+        
+        if (option.name === 'version_info_template_select') {
+            select.innerHTML = '<option value="">-- Load a Preset --</option>';
+            select.addEventListener('change', onTemplateSelect);
+        } else {
+             option.choices.forEach(choice => {
+                const opt = document.createElement('option');
+                opt.value = choice.value;
+                opt.textContent = choice.text;
+                select.appendChild(opt);
+            });
+        }
         
         select.value = option.default || '';
-        
         select.addEventListener('change', updateDependencies);
-
         containerDiv.appendChild(select);
     }
 
     function renderTextInput(option, containerDiv) {
-        containerDiv.innerHTML = `<label for="option-${option.name}" class="form-label">${option.display_name}</label>`;
+        const label = document.createElement('label');
+        label.htmlFor = `option-${option.name}`;
+        label.className = 'form-label';
+        label.textContent = option.display_name;
+
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'form-control';
@@ -235,6 +336,8 @@ document.addEventListener('DOMContentLoaded', () => {
         input.name = option.name;
         input.placeholder = option.placeholder || '';
         input.value = option.default || '';
+        
+        containerDiv.appendChild(label);
         containerDiv.appendChild(input);
     }
 

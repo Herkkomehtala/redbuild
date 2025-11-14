@@ -92,7 +92,7 @@
     },
     {
       "name": "bytecode_encoding",
-      "display_name": "Bytecode Encoding (Pre-Processing)",
+      "display_name": "Bytecode Encoding",
       "type": "select",
       "choices": [
         { "value": "", "text": "None" },
@@ -102,7 +102,7 @@
     },
     {
       "name": "bytecode_compression",
-      "display_name": "Bytecode Compression (Pre-Processing)",
+      "display_name": "Bytecode Compression",
       "type": "select",
       "choices": [
         { "value": "", "text": "None" },
@@ -158,7 +158,73 @@
         "type": "checkbox",
         "default": "false",
         "depends_on": { "option": "execution_method", "value": "remoteapc" }
-    }
-  ]
+    },
+    {
+        "name": "version_info_template_select",
+        "display_name": "Load Version Info Template (Optional)",
+        "type": "select",
+        "choices": []
+    },
+    { "name": "version_info_company_name", "display_name": "Company Name", "type": "text", "placeholder": "Microsoft Corporation" },
+    { "name": "version_info_file_description", "display_name": "File Description", "type": "text", "placeholder": "Host Process for Windows Services" },
+    { "name": "version_info_file_version", "display_name": "File Version", "type": "text", "placeholder": "10,0,19041,1" },
+    { "name": "version_info_internal_name", "display_name": "Internal Name", "type": "text", "placeholder": "svchost.exe" },
+    { "name": "version_info_legal_copyright", "display_name": "Legal Copyright", "type": "text", "placeholder": "Microsoft Corporation. All rights reserved." },
+    { "name": "version_info_original_filename", "display_name": "Original Filename", "type": "text", "placeholder": "svchost.exe" },
+    { "name": "version_info_product_name", "display_name": "Product Name", "type": "text", "placeholder": "Microsoft Windows Operating System" },
+    { "name": "version_info_product_version", "display_name": "Product Version", "type": "text", "placeholder": "10,0,19041,1" }
+  ],
+    "version_info_templates": {
+    "exe": [
+      {
+        "name": "psr.exe",
+        "company_name": "Microsoft Corporation",
+        "file_description": "Steps Recorder",
+        "file_version": "10.0.26100.3037 (WinBuild.160101.0800)",
+        "internal_name": "psr.exe",
+        "legal_copyright": "Microsoft Corporation. All rights reserved.",
+        "original_filename": "psr.exe.mui",
+        "product_name": "Microsoft Windows Operating System",
+        "product_version": "10.0.26100.3037"
+      },
+      {
+        "name": "dxgiadaptercache.exe",
+        "company_name": "Microsoft Corporation",
+        "file_description": "DXGI Adapter Cache",
+        "file_version": "10.0.26100.6725 (WinBuild.160101.0800)",
+        "internal_name": "DXGIAdapterCache.exe",
+        "legal_copyright": "Microsoft Corporation. All rights reserved.",
+        "original_filename": "DXGIAdapterCache.exe",
+        "product_name": "Microsoft Windows Operating System",
+        "product_version": "10.0.26100.6725"
+      }
+    ],
+    "dll": [
+      {
+        "name": "msimg32.dll",
+        "company_name": "Microsoft Corporation",
+        "file_description": "GDIEXT Client DLL",
+        "file_version": "10.0.26100.1882 (WinBuild.160101.0800)",
+        "internal_name": "gdiext",
+        "legal_copyright": "Microsoft Corporation. All rights reserved.",
+        "original_filename": "gdiext",
+        "product_name": "Microsoft Windows Operating System",
+        "product_version": "10.0.26100.1882"
+      }
+    ],
+    "cpl": [
+      {
+        "name": "sapi.cpl",
+        "company_name": "Microsoft Corporation",
+        "file_description": "Speech UX Control Panel",
+        "file_version": "10.0.26100.1 (WinBuild.160101.0800)",
+        "internal_name": "Sapi.cpl",
+        "legal_copyright": "Microsoft Corporation. All rights reserved.",
+        "original_filename": "Sapi.cpl.mui",
+        "product_name": "Microsoft Windows Operating System",
+        "product_version": "10.0.26100.1"
+      }
+    ]
+  }
 }
 

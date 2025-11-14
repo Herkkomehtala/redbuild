@@ -103,3 +103,12 @@ profiles:
     build:
       local:
         push: false
+    deploy:
+      helm:
+        releases:
+          - name: redbuild-app
+            chartPath: ./k8s/helm-chart
+            setValueTemplates:
+              frontend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_frontend}}'
+              backend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_backend}}'
+              backend.workerImage: '{{.IMAGE_FULLY_QUALIFIED_win_c_compiler_worker}}'

