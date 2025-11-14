@@ -16,10 +16,10 @@ service:
     port: 5000
 
 ingress:
-  enabled: true  # <-- Change this to true
-  className: "nginx" # <-- Add this line
+  enabled: true
+  className: "nginx"
   hosts:
-    - host: redbuild.local # <-- Add a test hostname
+    - host: redbuild.local
       paths:
         - path: /
           pathType: ImplementationSpecific
