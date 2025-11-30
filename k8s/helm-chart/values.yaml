@@ -32,7 +32,7 @@ rbac:
 
 pvc:
   create: true
-  storageClassName: standard
+  storageClassName: ""
   size: "2Gi"
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce

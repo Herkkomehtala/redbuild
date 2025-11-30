@@ -63,6 +63,10 @@ profiles:
 
   # --- MONITORING PROFILE ---
   - name: monitoring
+    build:
+      artifacts: []
+      local:
+        push: false
     deploy:
       helm:
         releases:
@@ -77,7 +81,8 @@ profiles:
 
           - name: loki
             repo: https://grafana.github.io/helm-charts
-            remoteChart: loki-stack
+            remoteChart: loki
+            version: 6.44.0
             namespace: monitoring
             createNamespace: true
             wait: true
