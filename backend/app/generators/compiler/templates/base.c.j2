@@ -57,6 +57,8 @@ char debug_buffer[512];
 {% endif %}
 {% if api_resolver == 'hashed' %}
     {% include 'partials/api_resolver_hashed.c.j2' %}
+{% elif api_resolver == 'recycled_gate' %}
+    {% include 'partials/api_resolver_recycled_gate.c.j2' %}
 {% else %}
     {% include 'partials/api_resolver.c.j2' %}
 {% endif %}

