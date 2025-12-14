@@ -46,7 +46,7 @@
             margin-bottom: 0.25rem;
             color: #adb5bd;
         }
-        .version-info-group legend {
+        .version-info-group legend, .guardrail-group legend {
             color: #ced4da;
             width: auto;
             margin-bottom: 0.5rem;
@@ -126,6 +126,13 @@ document.addEventListener('DOMContentLoaded', () => {
             versionInfoInsetGroup.className = 'version-info-inset-group';
         }
 
+        let guardrailGroup = null;
+        if (generator.options.some(opt => opt.name.startsWith('guardrail_'))) {
+            guardrailGroup = document.createElement('fieldset');
+            guardrailGroup.className = 'guardrail-group mb-3';
+            guardrailGroup.innerHTML = '<legend>Guardrails</legend>';
+        }
+
         if (!generator.options.find(opt => opt.name === 'data_source')) {
              const fileInputContainer = document.createElement('div');
              fileInputContainer.id = 'file-input-container';
@@ -141,6 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const containerDiv = document.createElement('div');
             const isVersionInfoField = option.name.startsWith('version_info_') && option.name !== 'version_info_template_select';
             const isVersionInfoTemplate = option.name === 'version_info_template_select';
+            const isGuardrailField = option.name.startsWith('guardrail_');
 
             containerDiv.className = 'mb-3'; // All fields get this class
             containerDiv.id = `container-${option.name}`;
@@ -159,6 +167,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 versionInfoGroup.appendChild(containerDiv);
             } else if (isVersionInfoField && versionInfoInsetGroup) {
                 versionInfoInsetGroup.appendChild(containerDiv);
+            } else if (isGuardrailField && guardrailGroup) {
+                guardrailGroup.appendChild(containerDiv);
             } else {
                 optionsContainer.appendChild(containerDiv);
             }
@@ -177,6 +187,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (versionInfoInsetGroup) {
             versionInfoGroup.appendChild(versionInfoInsetGroup);
+        }
+        if (guardrailGroup) {
+            optionsContainer.appendChild(guardrailGroup);
         }
         if (versionInfoGroup) {
             optionsContainer.appendChild(versionInfoGroup);

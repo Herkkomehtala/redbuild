@@ -1,0 +1,102 @@
+// Check if the machine is joined to a domain
+{% if guardrail_domain_joined %}
+BOOL CheckDomainJoined() {
+    if (pfnLsaOpenPolicy == NULL || pfnLsaQueryInformationPolicy == NULL || pfnLsaFreeMemory == NULL || pfnLsaClose == NULL) {
+        DEBUG_PRINT("Guardrail Error: Required LSA function pointers are NULL!");
+        return FALSE;
+    }
+
+    LSA_OBJECT_ATTRIBUTES objAttr;
+    LSA_HANDLE policyHandle = NULL;
+    PPOLICY_PRIMARY_DOMAIN_INFO pDomInfo = NULL;
+    NTSTATUS status;
+    BOOL isJoined = FALSE;
+
+    pfnRtlZeroMemory(&objAttr, sizeof(objAttr));
+
+    status = pfnLsaOpenPolicy(
+        NULL,
+        &objAttr,
+        POLICY_VIEW_LOCAL_INFORMATION,   // request minimal access
+        &policyHandle
+    );
+
+    if (status != 0) {
+        DEBUG_PRINT("Guardrail: LsaOpenPolicy failed. NTSTATUS: 0x%08X", status);
+        return FALSE;
+    }
+
+    status = pfnLsaQueryInformationPolicy(
+        policyHandle,
+        PolicyPrimaryDomainInformation,
+        (PVOID*)&pDomInfo
+    );
+
+    if (status == 0 && pDomInfo != NULL) {
+        if (pDomInfo->Sid != NULL) {
+            isJoined = TRUE;
+            DEBUG_PRINT("Guardrail: Domain Joined Check PASSED (SID found)");
+        } else {
+            DEBUG_PRINT("Guardrail: Domain Joined Check FAILED (No Domain SID, likely Workgroup)");
+        }
+    } else {
+        DEBUG_PRINT("Guardrail: LsaQueryInformationPolicy failed or returned NULL info. NTSTATUS: 0x%08X", status);
+    }
+
+    // Cleanup
+    if (pDomInfo) pfnLsaFreeMemory(pDomInfo);
+    if (policyHandle) pfnLsaClose(policyHandle);
+
+    return isJoined;
+}
+{% endif %}
+
+// Checking if the hostname matches the target
+{% if guardrail_hostname %}
+BOOL CheckHostname() {
+    if (pfnGetComputerNameA == NULL) {
+        DEBUG_PRINT("Guardrail Error: GetComputerNameA function pointer is NULL!");
+        return FALSE;
+    }
+
+    char buffer[MAX_COMPUTERNAME_LENGTH + 1];
+    DWORD size = MAX_COMPUTERNAME_LENGTH + 1;
+    
+    if (pfnGetComputerNameA(buffer, &size)) {
+        char* p1 = buffer;
+        char* p2 = "{{ guardrail_hostname }}";
+        
+        while (*p1 && *p2) {
+            char c1 = *p1;
+            char c2 = *p2;
+            
+            if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
+            if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
+            
+            if (c1 != c2) break;
+            p1++;
+            p2++;
+        }
+        
+        if (*p1 == '\0' && *p2 == '\0') {
+             DEBUG_PRINT("Guardrail: Hostname Check PASSED");
+             return TRUE;
+        }
+    }
+    
+    DEBUG_PRINT("Guardrail: Hostname Check FAILED");
+    return FALSE;
+}
+{% endif %}
+
+BOOL RunGuardrails() {
+    {% if guardrail_domain_joined %}
+    if (!CheckDomainJoined()) return FALSE;
+    {% endif %}
+
+    {% if guardrail_hostname %}
+    if (!CheckHostname()) return FALSE;
+    {% endif %}
+
+    return TRUE;
+}

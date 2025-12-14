@@ -160,6 +160,18 @@
         "depends_on": { "option": "execution_method", "value": "remoteapc" }
     },
     {
+        "name": "guardrail_domain_joined",
+        "display_name": "Domain Joined Check",
+        "type": "checkbox",
+        "default": "false"
+    },
+    {
+        "name": "guardrail_hostname",
+        "display_name": "Hostname (empty to disable)",
+        "type": "text",
+        "placeholder": "e.g. USER-PC"
+    },
+    {
         "name": "version_info_template_select",
         "display_name": "Load Version Info Template (Optional)",
         "type": "select",
@@ -227,4 +239,3 @@
     ]
   }
 }
-

