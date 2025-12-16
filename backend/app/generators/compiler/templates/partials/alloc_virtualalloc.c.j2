@@ -1,9 +1,29 @@
-void* AllocateExecutableMemory(SIZE_T size) {
-    if (pfnVirtualAlloc == NULL) {
-        DEBUG_PRINT("AllocateExecutableMemory: VirtualAlloc function pointer is NULL!");
-        return NULL;
+void* AllocateExecutableMemory(HANDLE hTargetProcess, SIZE_T size) {
+    if (hTargetProcess == (HANDLE)-1) {
+        if (pfnVirtualAlloc == NULL) {
+            DEBUG_PRINT("AllocateExecutableMemory: VirtualAlloc function pointer is NULL!");
+            return NULL;
+        }
+        DEBUG_PRINT("AllocateExecutableMemory: Allocating LOCAL memory via VirtualAlloc...");
+        return pfnVirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    } else {
+        #ifdef pfnVirtualAllocEx_DEFINED
+        if (pfnVirtualAllocEx == NULL) {
+             DEBUG_PRINT("AllocateExecutableMemory: VirtualAllocEx function pointer is NULL!");
+             return NULL;
+        }
+        DEBUG_PRINT("AllocateExecutableMemory: Allocating REMOTE memory via VirtualAllocEx...");
+        return pfnVirtualAllocEx(hTargetProcess, NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        #else
+        // If pfnVirtualAllocEx is not defined (e.g. local execution selected), but we reached here, fallback or error.
+        // In the pipeline model, this path shouldn't be reachable if execution_method is local.
+        // But for safety, we can define a fallback or error.
+        if (pfnVirtualAllocEx == NULL) { // Check runtime null just in case
+             DEBUG_PRINT("AllocateExecutableMemory: VirtualAllocEx missing for remote allocation.");
+             return NULL;
+        }
+        return pfnVirtualAllocEx(hTargetProcess, NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        #endif
     }
-    DEBUG_PRINT("AllocateExecutableMemory: Allocating memory via dynamically resolved VirtualAlloc...");
-    return pfnVirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 }
 

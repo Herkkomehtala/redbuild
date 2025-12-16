@@ -157,10 +157,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderRadioGroup(option, containerDiv);
             } else if (option.type === 'select') {
                 renderSelect(option, containerDiv);
-            } else if (option.type === 'text') {
+            } else if (option.type === 'text' || option.type === 'number') {
                 renderTextInput(option, containerDiv);
             } else if (option.type === 'checkbox') {
                 renderCheckbox(option, containerDiv);
+            } else if (option.type === 'multiselect') {
+                renderMultiSelect(option, containerDiv);
             }
             
             if (isVersionInfoTemplate && versionInfoGroup) {
@@ -371,6 +373,30 @@ document.addEventListener('DOMContentLoaded', () => {
         containerDiv.appendChild(label);
     }
 
+    function renderMultiSelect(option, containerDiv) {
+        containerDiv.innerHTML = `<label class="form-label">${option.display_name}</label>`;
+        option.choices.forEach(choice => {
+            const formCheck = document.createElement('div');
+            formCheck.className = 'form-check';
+            
+            const input = document.createElement('input');
+            input.className = 'form-check-input';
+            input.type = 'checkbox';
+            input.name = option.name;
+            input.value = choice.value;
+            input.id = `option-${option.name}-${choice.value}`;
+            
+            const label = document.createElement('label');
+            label.className = 'form-check-label';
+            label.htmlFor = input.id;
+            label.textContent = choice.text;
+            
+            formCheck.appendChild(input);
+            formCheck.appendChild(label);
+            containerDiv.appendChild(formCheck);
+        });
+    }
+
     async function startProcessing(event) {
         event.preventDefault();
         const generatorType = generatorTypeSelect.value;
@@ -394,7 +420,14 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const [key, value] of formData.entries()) {
             if (key !== 'file' && key !== 'generator_type' && key !== 'original_filename') {
                 if (value) { 
-                    selectedOptions[key] = value;
+                    if (selectedOptions[key]) {
+                        if (!Array.isArray(selectedOptions[key])) {
+                            selectedOptions[key] = [selectedOptions[key]];
+                        }
+                        selectedOptions[key].push(value);
+                    } else {
+                        selectedOptions[key] = value;
+                    }
                 }
             }
         }

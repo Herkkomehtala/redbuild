@@ -122,14 +122,37 @@
       }
     },
     {
-      "name": "allocation_method",
-      "display_name": "Allocation Method",
+      "name": "memory_strategy",
+      "display_name": "Memory Strategy",
       "type": "select",
       "default": "virtualalloc",
       "choices": [
-        { "value": "virtualalloc", "text": "VirtualAlloc" },
-        { "value": "mappedsection", "text": "Mapped Section" }
+        { "value": "virtualalloc", "text": "VirtualAlloc (Standard Private)" },
+        { "value": "mappedsection", "text": "Mapped Section (Standard Mapped)" },
+        { "value": "driploader", "text": "DripLoader (Stealth Private + Slow Write)" },
+        { "value": "modulestomping_fast", "text": "Module Stomping (Image Backed + Fast Write)" },
+        { "value": "modulestomping_drip", "text": "Module Stomping (Image Backed + Drip Write)" }
       ]
+    },
+    {
+      "name": "stomp_dll_path",
+      "display_name": "Stomp Target DLL (Full Path)",
+      "type": "text",
+      "default": "C:\\Windows\\System32\\amsi.dll",
+      "depends_on": {
+          "option": "memory_strategy",
+          "value": ["modulestomping_fast", "modulestomping_drip"]
+      }
+    },
+    {
+      "name": "drip_delay",
+      "display_name": "Drip Delay (ms)",
+      "type": "number",
+      "default": 100,
+      "depends_on": {
+          "option": "memory_strategy",
+          "value": ["driploader", "modulestomping_drip"]
+      }
     },
     {
       "name": "execution_method",
@@ -159,6 +182,15 @@
         "type": "checkbox",
         "default": "false",
         "depends_on": { "option": "execution_method", "value": "remoteapc" }
+    },
+    {
+        "name": "evasion_features",
+        "display_name": "Defense Evasion",
+        "type": "multiselect",
+        "choices": [
+            { "value": "patch_etw", "text": "Patch ETW (Event Tracing)" },
+            { "value": "unhook_ntdll", "text": "Unhook NTDLL" }
+        ]
     },
     {
         "name": "guardrail_domain_joined",

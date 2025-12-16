@@ -1,45 +1,52 @@
-void* AllocateExecutableMemory(SIZE_T size) {
-    HANDLE hSection;
-    void* exec_mem;
-
-    if (pfnCreateFileMappingW == NULL || pfnMapViewOfFile == NULL) {
-        DEBUG_PRINT("AllocateExecutableMemory: CreateFileMappingW or MapViewOfFile function pointers are NULL!");
+void* AllocateExecutableMemory(HANDLE hTargetProcess, SIZE_T size) {
+    if (hTargetProcess == (HANDLE)-1) {
+        // --- LOCAL PATH (Win32 API) ---
+        if (pfnCreateFileMappingW == NULL || pfnMapViewOfFile == NULL) {
+            DEBUG_PRINT("AllocateExecutableMemory: Win32 mapping functions missing!");
+            return NULL;
+        }
+        DEBUG_PRINT("AllocateExecutableMemory: Creating LOCAL mapped section...");
+        HANDLE hSection = pfnCreateFileMappingW(INVALID_HANDLE_VALUE, NULL, PAGE_EXECUTE_READWRITE, 0, size, NULL);
+        if (!hSection) return NULL;
+        
+        void* mem = pfnMapViewOfFile(hSection, FILE_MAP_WRITE | FILE_MAP_EXECUTE, 0, 0, size);
+        pfnCloseHandle(hSection);
+        return mem;
+    } else {
+        // --- REMOTE PATH (Native API) ---
+        #if defined(pfnNtCreateSection_DEFINED) || 1 
+        // We assume pfnNtCreateSection is defined if we are in this path, 
+        // but robust code checks the pointer.
+        if (pfnNtCreateSection == NULL || pfnNtMapViewOfSection == NULL) {
+            DEBUG_PRINT("AllocateExecutableMemory: Native mapping functions missing for remote!");
+            return NULL;
+        }
+        DEBUG_PRINT("AllocateExecutableMemory: Creating REMOTE mapped section...");
+        
+        HANDLE hSection = NULL;
+        LARGE_INTEGER sectionSize;
+        sectionSize.QuadPart = size;
+        
+        NTSTATUS status = pfnNtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, &sectionSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, NULL);
+        if (!NT_SUCCESS(status)) {
+            DEBUG_PRINT("AllocateExecutableMemory: NtCreateSection failed 0x%X", status);
+            return NULL;
+        }
+        
+        PVOID pRemoteAddress = NULL;
+        SIZE_T viewSize = 0;
+        
+        status = pfnNtMapViewOfSection(hSection, hTargetProcess, &pRemoteAddress, 0, 0, NULL, &viewSize, 2, 0, PAGE_EXECUTE_READWRITE);
+        pfnCloseHandle(hSection); // We can close it now, the mapping persists? Yes, usually view holds ref.
+        
+        if (!NT_SUCCESS(status)) {
+             DEBUG_PRINT("AllocateExecutableMemory: Remote NtMapViewOfSection failed 0x%X", status);
+             return NULL;
+        }
+        
+        return pRemoteAddress;
+        #else
         return NULL;
+        #endif
     }
-
-    DEBUG_PRINT("AllocateExecutableMemory: Creating a memory-backed section of size %u bytes...", size);
-    
-    hSection = pfnCreateFileMappingW(
-        INVALID_HANDLE_VALUE,
-        NULL,
-        PAGE_EXECUTE_READWRITE,
-        0,
-        size,
-        NULL
-    );
-
-    if (hSection == NULL) {
-        DEBUG_PRINT("AllocateExecutableMemory: CreateFileMappingW failed!");
-        return NULL;
-    }
-
-    DEBUG_PRINT("AllocateExecutableMemory: Section handle created: %p", hSection);
-
-    exec_mem = pfnMapViewOfFile(
-        hSection,
-        FILE_MAP_WRITE | FILE_MAP_EXECUTE,
-        0,
-        0,
-        size
-    );
-
-    pfnCloseHandle(hSection);
-
-    if (exec_mem == NULL) {
-        DEBUG_PRINT("AllocateExecutableMemory: MapViewOfFile failed!");
-        return NULL;
-    }
-    
-    DEBUG_PRINT("AllocateExecutableMemory: Memory successfully mapped at: %p", exec_mem);
-    return exec_mem;
 }
