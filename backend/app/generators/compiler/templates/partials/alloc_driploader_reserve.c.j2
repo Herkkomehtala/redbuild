@@ -10,15 +10,13 @@ void* AllocateExecutableMemory(HANDLE hTargetProcess, SIZE_T size) {
     MEMORY_BASIC_INFORMATION mbi;
     PVOID currentAddr = (PVOID)0x10000; // Start skipping NULL page
     
-    // Simple scan for a FREE region large enough
     while ((ULONG_PTR)currentAddr < 0x7FFFFFFF0000) {
         if (!NT_SUCCESS(pfnNtQueryVirtualMemory(hTargetProcess, currentAddr, 0, &mbi, sizeof(mbi), NULL))) {
             break;
         }
         
         if (mbi.State == MEM_FREE && mbi.RegionSize >= size) {
-            // Found a candidate
-            // Align to 64KB (Allocation Granularity) just in case
+            // Align to 64KB just in case
             ULONG_PTR alignedBase = ((ULONG_PTR)mbi.BaseAddress + 0xFFFF) & ~0xFFFF;
             if (mbi.RegionSize - (alignedBase - (ULONG_PTR)mbi.BaseAddress) >= size) {
                 baseAddr = (PVOID)alignedBase;

@@ -86,9 +86,9 @@
       "type": "select",
       "default": "hashed",
       "choices": [
-        { "value": "string", "text": "No API hashing" },
-        { "value": "hashed", "text": "API Hashing" },
-        { "value": "recycled_gate", "text": "Recycled Gate (Indirect Syscalls)" }
+        { "value": "string", "text": "Standard Imports (IAT)" },
+        { "value": "hashed", "text": "Dynamic Hashing" },
+        { "value": "recycled_gate", "text": "Indirect Syscalls" }
       ]
     },
     {
@@ -127,18 +127,18 @@
       "type": "select",
       "default": "virtualalloc",
       "choices": [
-        { "value": "virtualalloc", "text": "VirtualAlloc (Standard Private)" },
-        { "value": "mappedsection", "text": "Mapped Section (Standard Mapped)" },
-        { "value": "driploader", "text": "DripLoader (Stealth Private + Slow Write)" },
-        { "value": "modulestomping_fast", "text": "Module Stomping (Image Backed + Fast Write)" },
-        { "value": "modulestomping_drip", "text": "Module Stomping (Image Backed + Drip Write)" }
+        { "value": "virtualalloc", "text": "Private Allocation (Standard)" },
+        { "value": "mappedsection", "text": "Mapped Allocation (Standard)" },
+        { "value": "driploader", "text": "Private Allocation (Drip)" },
+        { "value": "modulestomping_fast", "text": "Module Stomping (Standard)" },
+        { "value": "modulestomping_drip", "text": "Module Stomping (Drip)" }
       ]
     },
     {
       "name": "stomp_dll_path",
       "display_name": "Stomp Target DLL (Full Path)",
       "type": "text",
-      "default": "C:\\Windows\\System32\\amsi.dll",
+      "default": "C:\\Windows\\System32\\DXCaptureReplay.dll",
       "depends_on": {
           "option": "memory_strategy",
           "value": ["modulestomping_fast", "modulestomping_drip"]
@@ -160,9 +160,9 @@
       "type": "select",
       "default": "newthread",
       "choices": [
-        { "value": "inprocess", "text": "In Process, No New Thread" },
-        { "value": "newthread", "text": "In Process, New Thread" },
-        { "value": "remoteapc", "text": "Early Cryo Bird Injection"}
+        { "value": "inprocess", "text": "Direct Execution" },
+        { "value": "newthread", "text": "Local Thread" },
+        { "value": "remoteapc", "text": "Remote APC (Early Bird)"}
       ]
     },
     {
