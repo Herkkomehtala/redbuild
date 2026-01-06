@@ -1,0 +1,10 @@
+        private void Log(string message)
+        {
+            {% if debug %}
+            try {
+                OutputDebugString("[G2JS] " + message);
+            } catch {}
+            {% else %}
+            // Debugging disabled
+            {% endif %}
+        }

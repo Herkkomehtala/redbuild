@@ -34,6 +34,8 @@ spec:
             value: {{.Values.backend.image }}
           - name: WIN_C_COMPILER_WORKER_IMAGE
             value: {{.Values.backend.workerImage }}
+          - name: G2JS_WORKER_IMAGE
+            value: {{.Values.backend.g2jsWorkerImage }}
           # - name: FLASK_ENV
           #   value: production
           - name: SHARED_PVC_NAME

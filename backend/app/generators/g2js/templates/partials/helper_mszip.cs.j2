@@ -1,0 +1,34 @@
+        private byte[] DecompressMSZIP(byte[] data)
+        {
+            if (data.Length < 16) throw new Exception("Invalid MSZIP header (too short).");
+            
+            // Read Uncompressed Size (UInt64 at offset 8)
+            ulong uncompressedSize = BitConverter.ToUInt64(data, 8);
+            
+            byte[] decompressed = new byte[uncompressedSize];
+            
+            IntPtr decompressorHandle;
+            if (!CreateDecompressor(COMPRESS_ALGORITHM_MSZIP, IntPtr.Zero, out decompressorHandle))
+            {
+                throw new Exception("CreateDecompressor failed. GetLastError: " + Marshal.GetLastWin32Error());
+            }
+            
+            UIntPtr bytesWritten;
+            bool success = Decompress(
+                decompressorHandle, 
+                data, 
+                (UIntPtr)data.Length, 
+                decompressed, 
+                (UIntPtr)uncompressedSize, 
+                out bytesWritten
+            );
+            
+            CloseDecompressor(decompressorHandle);
+            
+            if (!success)
+            {
+                 throw new Exception("Decompress failed. GetLastError: " + Marshal.GetLastWin32Error());
+            }
+            
+            return decompressed;
+        }

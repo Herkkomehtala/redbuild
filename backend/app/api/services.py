@@ -17,11 +17,13 @@ SHARED_PVC_NAME = os.getenv("SHARED_PVC_NAME", "shared-uploads-pvc")
 SHARED_VOLUME_PATH = '/tmp/uploads'
 GENERATOR_IMAGE_MAP = {
     "transformer": os.getenv("REDBUILD_BACKEND_IMAGE", "redbuild-backend"),
-    "compiler": os.getenv("WIN_C_COMPILER_WORKER_IMAGE", "win-c-compiler-worker")
+    "compiler": os.getenv("WIN_C_COMPILER_WORKER_IMAGE", "win-c-compiler-worker"),
+    "g2js": os.getenv("G2JS_WORKER_IMAGE", "gadget-to-jscript-worker")
 }
 
 logging.info(f"Using transformer image: {GENERATOR_IMAGE_MAP['transformer']}")
 logging.info(f"Using compiler image: {GENERATOR_IMAGE_MAP['compiler']}")
+logging.info(f"Using g2js image: {GENERATOR_IMAGE_MAP['g2js']}")
 logging.info(f"Using shared PVC: {SHARED_PVC_NAME}")
 
 # --- Service Functions ---
@@ -67,9 +69,10 @@ def start_generator_job(file_storage, original_filename, generator_type, options
     input_filename = f"{uuid.uuid4()}"
     
     data_source = user_options.get('data_source')
-    is_preprocessing_needed = (generator_type == 'compiler' and 
-                               data_source == 'embedded' and 
-                               selected_transformations)
+    is_preprocessing_needed = (
+        (generator_type == 'compiler' and data_source == 'embedded' and selected_transformations) or
+        (generator_type == 'g2js' and selected_transformations)
+    )
 
     if is_preprocessing_needed:
         if not file_storage:
@@ -206,4 +209,3 @@ def check_job_status(job_name):
 
 def download_result_file(filename):
     return send_from_directory(SHARED_VOLUME_PATH, filename, as_attachment=True)
-

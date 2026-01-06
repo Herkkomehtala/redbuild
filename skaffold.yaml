@@ -17,6 +17,9 @@ build:
     - image: win-c-compiler-worker
       context: backend
       docker: { dockerfile: generators/compiler/Dockerfile }
+    - image: gadget-to-jscript-worker
+      context: backend
+      docker: { dockerfile: generators/g2js/Dockerfile }
 
 # --- GLOBAL PORT FORWARD ---
 portForward:
@@ -51,6 +54,9 @@ profiles:
         - image: win-c-compiler-worker
           context: backend
           docker: { dockerfile: generators/compiler/Dockerfile }
+        - image: gadget-to-jscript-worker
+          context: backend
+          docker: { dockerfile: generators/g2js/Dockerfile }
     deploy:
       helm:
         releases:
@@ -60,6 +66,7 @@ profiles:
               frontend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_frontend}}'
               backend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_backend}}'
               backend.workerImage: '{{.IMAGE_FULLY_QUALIFIED_win_c_compiler_worker}}'
+              backend.g2jsWorkerImage: '{{.IMAGE_FULLY_QUALIFIED_gadget_to_jscript_worker}}'
 
   # --- MONITORING PROFILE ---
   - name: monitoring
@@ -117,3 +124,4 @@ profiles:
               frontend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_frontend}}'
               backend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_backend}}'
               backend.workerImage: '{{.IMAGE_FULLY_QUALIFIED_win_c_compiler_worker}}'
+              backend.g2jsWorkerImage: '{{.IMAGE_FULLY_QUALIFIED_gadget_to_jscript_worker}}'

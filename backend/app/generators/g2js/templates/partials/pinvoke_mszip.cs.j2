@@ -1,0 +1,10 @@
+        [DllImport("cabinet.dll", SetLastError = true)]
+        static extern bool CreateDecompressor(uint Algorithm, IntPtr AllocationRoutines, out IntPtr DecompressorHandle);
+
+        [DllImport("cabinet.dll", SetLastError = true)]
+        static extern bool Decompress(IntPtr DecompressorHandle, byte[] CompressedData, UIntPtr CompressedDataSize, byte[] UncompressedBuffer, UIntPtr UncompressedBufferSize, out UIntPtr UncompressedDataSize);
+
+        [DllImport("cabinet.dll", SetLastError = true)]
+        static extern bool CloseDecompressor(IntPtr DecompressorHandle);
+
+        const uint COMPRESS_ALGORITHM_MSZIP = 2;

@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import uuid
+import logging
 
 def run_stage(stage_name, module_name, input_filepath, original_filename, generator_type="transformer"):
     """
@@ -48,6 +49,7 @@ def run_simple_generator(generator_type, options, input_filepath, original_filen
         raise
 
 def main():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
     parser = argparse.ArgumentParser(description="A smart worker for hierarchical file processing.")
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--original-filename', required=True)
@@ -65,7 +67,7 @@ def main():
         current_filepath = args.input_file
         final_filename = ""
 
-        is_compiler_job = 'output_format' in options 
+        is_compiler_job = ('output_format' in options) or ('script_type' in options)
         is_transformer_job = not is_compiler_job
 
         if is_compiler_job:

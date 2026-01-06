@@ -1,0 +1,47 @@
+private byte[] DecodeBase85(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return new byte[0];
+            s = s.Replace(" ", "").Replace("\n", "").Replace("\r", "").Replace("\t", "");
+            
+            string alpha = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
+            uint[] powers = { 52200625, 614125, 7225, 85, 1 };
+            
+            using (MemoryStream ms = new MemoryStream()) 
+            {
+                int length = s.Length;
+                int i = 0;
+                while (i < length) 
+                {
+                    int chunkLen = Math.Min(5, length - i);
+                    uint value = 0;
+                    
+                    for(int j=0; j<5; j++) 
+                    {
+                        uint val = 84; // Padding with '~' (index 84)
+                        if (j < chunkLen) 
+                        {
+                            char c = s[i+j];
+                            int idx = alpha.IndexOf(c);
+                            if (idx < 0) throw new Exception("Invalid Base85 char: " + c);
+                            val = (uint)idx;
+                        }
+                        value += val * powers[j];
+                    }
+                    
+                    int outCount = (chunkLen == 5) ? 4 : (chunkLen - 1);
+                    
+                    byte b1 = (byte)(value >> 24);
+                    byte b2 = (byte)(value >> 16);
+                    byte b3 = (byte)(value >> 8);
+                    byte b4 = (byte)(value);
+                    
+                    if (outCount >= 1) ms.WriteByte(b1);
+                    if (outCount >= 2) ms.WriteByte(b2);
+                    if (outCount >= 3) ms.WriteByte(b3);
+                    if (outCount >= 4) ms.WriteByte(b4);
+                    
+                    i += 5;
+                }
+                return ms.ToArray();
+            }
+        }

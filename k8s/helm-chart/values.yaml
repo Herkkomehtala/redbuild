@@ -4,6 +4,7 @@ frontend:
 backend:
   image: "redbuild-backend:latest"
   workerImage: "win-c-compiler-worker:latest"
+  g2jsWorkerImage: "gadget-to-jscript-worker:latest"
 
 replicaCount: 1
 
