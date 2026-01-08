@@ -46,7 +46,6 @@ coverage.xml
 /obj/
 *.VC.db
 *.exe
-*.dll
 *.lib
 *.ilk
 *.pdb
