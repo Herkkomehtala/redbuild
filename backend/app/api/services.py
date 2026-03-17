@@ -12,6 +12,10 @@ from kubernetes.client import (
     V1Job, V1JobSpec
 )
 
+from opentelemetry import propagate, trace
+
+tracer = trace.get_tracer(__name__)
+
 # --- Configuration ---
 SHARED_PVC_NAME = os.getenv("SHARED_PVC_NAME", "shared-uploads-pvc")
 SHARED_VOLUME_PATH = '/tmp/uploads'
@@ -52,93 +56,110 @@ def discover_generators():
     logging.info(f"Discovered generators via manifests: {generators}")
     return generators
 
-def start_generator_job(file_storage, original_filename, generator_type, options_json):
+def start_generator_job(file_storage, original_filename, generator_type, options_json, task_id=None):
     """
     Starts generator jobs, orchestrating a multi-job pipeline if necessary.
     """
-    user_options = json.loads(options_json)
-    
-    transformation_options = {
-        'encoding': user_options.get('bytecode_encoding'),
-        'compression': user_options.get('bytecode_compression')
-    }
-    selected_transformations = {k: v for k, v in transformation_options.items() if v}
+    with tracer.start_as_current_span("orchestrate_generator_pipeline") as span:
+        span.set_attribute("generator_type", generator_type)
+        span.set_attribute("task_id", task_id or "unknown")
+        
+        user_options = json.loads(options_json)
+        
+        transformation_options = {
+            'encoding': user_options.get('bytecode_encoding'),
+            'compression': user_options.get('bytecode_compression')
+        }
+        selected_transformations = {k: v for k, v in transformation_options.items() if v}
 
-    input_filename = f"{uuid.uuid4()}"
-    
-    data_source = user_options.get('data_source')
-    is_preprocessing_needed = (generator_type == 'compiler' and 
-                               data_source == 'embedded' and 
-                               selected_transformations)
+        input_filename = f"{uuid.uuid4()}"
+        
+        data_source = user_options.get('data_source')
+        is_preprocessing_needed = (generator_type == 'compiler' and 
+                                   data_source == 'embedded' and 
+                                   selected_transformations)
 
-    if is_preprocessing_needed:
-        if not file_storage:
-             raise ValueError("A file must be provided for pre-processing.")
-        
-        input_filepath = os.path.join(SHARED_VOLUME_PATH, input_filename)
-        file_storage.save(input_filepath)
-        
-        logging.info("Transformation step required. Starting transformer job first...")
-        transformer_job_name = f"job-transformer-preproc-{uuid.uuid4().hex[:6]}"
-        transformer_job_body = _build_job_object(
-            transformer_job_name, input_filename, original_filename, "transformer", json.dumps(selected_transformations)
-        )
-        batch_v1.create_namespaced_job(body=transformer_job_body, namespace=NAMESPACE)
-        
-        final_artifact_name = _wait_for_job_completion(transformer_job_name)
-        if not final_artifact_name:
-            raise Exception("Pre-processing transformer job failed.")
+        if is_preprocessing_needed:
+            if not file_storage:
+                 raise ValueError("A file must be provided for pre-processing.")
             
-        logging.info(f"Transformer job complete. Intermediate artifact: {final_artifact_name}")
-        final_input_for_compiler = final_artifact_name
-    else:
-        if file_storage:
             input_filepath = os.path.join(SHARED_VOLUME_PATH, input_filename)
             file_storage.save(input_filepath)
-        final_input_for_compiler = input_filename
+            
+            logging.info("Transformation step required. Starting transformer job first...")
+            transformer_job_name = f"job-transformer-preproc-{uuid.uuid4().hex[:6]}"
+            transformer_job_body = _build_job_object(
+                transformer_job_name, input_filename, original_filename, "transformer", json.dumps(selected_transformations), task_id
+            )
+            
+            with tracer.start_as_current_span("k8s.schedule_job") as k8s_span:
+                k8s_span.set_attribute("job_name", transformer_job_name)
+                batch_v1.create_namespaced_job(body=transformer_job_body, namespace=NAMESPACE)
+            
+            final_artifact_name = _wait_for_job_completion(transformer_job_name)
+            if not final_artifact_name:
+                raise Exception("Pre-processing transformer job failed.")
+                
+            logging.info(f"Transformer job complete. Intermediate artifact: {final_artifact_name}")
+            final_input_for_compiler = final_artifact_name
+        else:
+            if file_storage:
+                input_filepath = os.path.join(SHARED_VOLUME_PATH, input_filename)
+                file_storage.save(input_filepath)
+            final_input_for_compiler = input_filename
 
 
-    app_root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    manifest_path = os.path.join(app_root_path, 'generators', generator_type, 'manifest.json')
-    final_options = user_options.copy()
-    
-    if os.path.exists(manifest_path):
-        with open(manifest_path, 'r') as f:
-            manifest = json.load(f)
-            if manifest.get('entry_module'):
-                final_options['entry_module'] = manifest['entry_module']
-                logging.info(f"Enriched options with entry_module: {manifest.get('entry_module')}")
+        app_root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        manifest_path = os.path.join(app_root_path, 'generators', generator_type, 'manifest.json')
+        final_options = user_options.copy()
+        
+        if os.path.exists(manifest_path):
+            with open(manifest_path, 'r') as f:
+                manifest = json.load(f)
+                if manifest.get('entry_module'):
+                    final_options['entry_module'] = manifest['entry_module']
+                    logging.info(f"Enriched options with entry_module: {manifest.get('entry_module')}")
 
-    logging.info(f"Starting main '{generator_type}' job...")
-    main_job_name = f"job-{generator_type}-{uuid.uuid4().hex[:6]}"
-    main_job_body = _build_job_object(
-        main_job_name, final_input_for_compiler, original_filename, generator_type, json.dumps(final_options)
-    )
-    batch_v1.create_namespaced_job(body=main_job_body, namespace=NAMESPACE)
-    
-    return main_job_name
+        logging.info(f"Starting main '{generator_type}' job...")
+        main_job_name = f"job-{generator_type}-{uuid.uuid4().hex[:6]}"
+        main_job_body = _build_job_object(
+            main_job_name, final_input_for_compiler, original_filename, generator_type, json.dumps(final_options), task_id
+        )
+        
+        with tracer.start_as_current_span("k8s.schedule_job") as k8s_span:
+            k8s_span.set_attribute("job_name", main_job_name)
+            batch_v1.create_namespaced_job(body=main_job_body, namespace=NAMESPACE)
+        
+        return main_job_name
 
 def _wait_for_job_completion(job_name, timeout=120):
     """A blocking function to poll for job completion."""
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            status_data = check_job_status(job_name)
-            if status_data['state'] == 'SUCCESS':
-                return status_data['result']
-            if status_data['state'] == 'FAILURE':
-                logging.error(f"Job '{job_name}' failed with error: {status_data.get('error')}")
-                return None
-        except Exception as e:
-            logging.error(f"Error polling for job {job_name}: {e}")
-        time.sleep(2)
-    raise TimeoutError(f"Timed out waiting for job '{job_name}' to complete.")
+    with tracer.start_as_current_span("wait_for_job_completion") as span:
+        span.set_attribute("job_name", job_name)
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                status_data = check_job_status(job_name)
+                if status_data['state'] == 'SUCCESS':
+                    return status_data['result']
+                if status_data['state'] == 'FAILURE':
+                    logging.error(f"Job '{job_name}' failed with error: {status_data.get('error')}")
+                    span.set_status(trace.Status(trace.StatusCode.ERROR, status_data.get('error')))
+                    return None
+            except Exception as e:
+                logging.error(f"Error polling for job {job_name}: {e}")
+            time.sleep(2)
+        raise TimeoutError(f"Timed out waiting for job '{job_name}' to complete.")
 
-def _build_job_object(job_name, input_filename, original_filename, generator_type, options_json):
+def _build_job_object(job_name, input_filename, original_filename, generator_type, options_json, task_id=None):
     """
     Builds the Kubernetes Job object.
     """
     image_name = GENERATOR_IMAGE_MAP.get(generator_type, "redbuild-backend")
+    
+    carrier = {}
+    propagate.inject(carrier)
+    traceparent = carrier.get("traceparent")
     
     job_command = [
         "python", "-m", "app.job_runner",
@@ -148,15 +169,28 @@ def _build_job_object(job_name, input_filename, original_filename, generator_typ
         "--options", options_json
     ]
 
+    container_env = [
+        V1EnvVar(name="JOB_NAME", value=job_name)
+    ]
+    otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if otel_endpoint:
+        container_env.append(V1EnvVar(name="OTEL_EXPORTER_OTLP_ENDPOINT", value=otel_endpoint))
+    if traceparent:
+        container_env.append(V1EnvVar(name="OTEL_TRACEPARENT", value=traceparent))
+
     container = V1Container(
         name="worker", image=image_name, image_pull_policy="IfNotPresent",
         command=job_command,
         volume_mounts=[V1VolumeMount(name="uploads-storage", mount_path=SHARED_VOLUME_PATH)],
-        env=[V1EnvVar(name="JOB_NAME", value=job_name)]
+        env=container_env
     )
     
+    labels = {"app": "processing-job", "gen-type": generator_type}
+    if task_id:
+        labels["redbuild.internal/task-id"] = task_id
+
     pod_template = V1PodTemplateSpec(
-        metadata=V1ObjectMeta(labels={"app": "processing-job", "gen-type": generator_type}),
+        metadata=V1ObjectMeta(labels=labels),
         spec=V1PodSpec(
             restart_policy="Never", containers=[container],
             volumes=[V1Volume(

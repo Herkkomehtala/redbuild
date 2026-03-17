@@ -146,13 +146,6 @@ def _prepare_template_context(options, manifest_data, payload_bytes=None):
         'stomp_dll_path': options.get('stomp_dll_path', r'C:\Windows\System32\amsi.dll').replace('\\', '\\\\')
     })
 
-    evasion_features = options.get('evasion_features', [])
-    if isinstance(evasion_features, str):
-         evasion_features = evasion_features.split(',')
-         
-    template_vars['evasion_unhook'] = 'unhook_ntdll' in evasion_features
-    template_vars['evasion_etw'] = 'patch_etw' in evasion_features
-
     if execution_method_choice == 'remoteapc':
         target_process = options.get('target_process', 'RuntimeBroker.exe')
         template_vars['obfuscate_execution_strings'] = obfuscate_execution_strings

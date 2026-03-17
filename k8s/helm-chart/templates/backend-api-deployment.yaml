@@ -30,6 +30,11 @@ spec:
           - python
           - run.py
         env:
+          - name: FLASK_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Release.Name }}-backend-secrets
+                key: flask-secret-key
           - name: REDBUILD_BACKEND_IMAGE
             value: {{.Values.backend.image }}
           - name: WIN_C_COMPILER_WORKER_IMAGE
@@ -38,6 +43,10 @@ spec:
           #   value: production
           - name: SHARED_PVC_NAME
             value: "{{.Release.Name }}-shared-uploads"
+          {{- if .Values.monitoring.otlpEndpoint }}
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: {{ .Values.monitoring.otlpEndpoint | quote }}
+          {{- end }}
         ports:
         - containerPort: 5000
           name: http-api

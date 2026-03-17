@@ -36,3 +36,6 @@ pvc:
   size: "2Gi"
   accessModes:
     - ReadWriteOnce
+
+monitoring:
+  otlpEndpoint: ""

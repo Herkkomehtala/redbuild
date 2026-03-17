@@ -9,6 +9,16 @@ alloy:
         resources: ["pods/log"]
         verbs: ["get", "list", "watch"]
   
+  extraPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+
   configMap:
     create: true
     content: |
@@ -23,6 +33,12 @@ alloy:
           source_labels = ["__meta_kubernetes_namespace"]
           action        = "drop"
           regex         = "monitoring"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          action        = "drop"
+          regex         = ".*redbuild-app-backend-api.*|job-.*"
         }
 
         rule {
@@ -49,25 +65,56 @@ alloy:
 
       loki.source.kubernetes "pod_logs" {
         targets    = discovery.relabel.pod_logs.output
-        
-        forward_to = [loki.process.filter_logs.receiver]
-      }
-
-      loki.process "filter_logs" {
-        
-        stage.match {
-          selector = "{pod=~\"redbuild-app-backend-api.*\"}"
-
-          stage.drop {
-            expression = ".*GET /metrics HTTP/1.1\" 200 -.*"
-          }
-        }
-        
         forward_to = [loki.write.default.receiver]
       }
 
       loki.write "default" {
         endpoint {
           url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+        }
+      }
+
+      otelcol.receiver.otlp "default" {
+        grpc {
+          endpoint = "0.0.0.0:4317"
+        }
+        http {
+          endpoint = "0.0.0.0:4318"
+        }
+
+        output {
+          metrics = [otelcol.processor.batch.default.input]
+          logs    = [otelcol.processor.batch.default.input]
+          traces  = [otelcol.processor.batch.default.input]
+        }
+      }
+
+      otelcol.processor.batch "default" {
+        output {
+          metrics = [otelcol.exporter.prometheus.default.input]
+          logs    = [otelcol.exporter.otlphttp.loki.input]
+          traces  = [otelcol.exporter.otlphttp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.prometheus "default" {
+        forward_to = [prometheus.remote_write.default.receiver]
+      }
+
+      prometheus.remote_write "default" {
+        endpoint {
+          url = "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
+        }
+      }
+
+      otelcol.exporter.otlphttp "loki" {
+        client {
+          endpoint = "http://loki-gateway.monitoring.svc.cluster.local/otlp"
+        }
+      }
+
+      otelcol.exporter.otlphttp "tempo" {
+        client {
+          endpoint = "http://tempo.monitoring.svc.cluster.local:4318"
         }
       }

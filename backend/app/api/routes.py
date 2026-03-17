@@ -3,23 +3,24 @@ import json
 from flask import request, jsonify, current_app
 from . import bp
 from . import services
-from prometheus_client import Counter
+from opentelemetry import metrics
+
+meter = metrics.get_meter(__name__)
 
 # --- METRICS DEFINITIONS ---
-JOBS_STARTED_TOTAL = Counter(
-    'redbuild_jobs_started_total',
-    'Total number of processing jobs started',
-    ['generator_type']
+JOBS_STARTED_TOTAL = meter.create_counter(
+    "redbuild.jobs.started_total",
+    description="Total number of processing jobs started"
 )
 
-JOB_STATUS_CHECKS_TOTAL = Counter(
-    'redbuild_job_status_checks_total',
-    'Total number of job status checks'
+JOB_STATUS_CHECKS_TOTAL = meter.create_counter(
+    "redbuild.job.status_checks_total",
+    description="Total number of job status checks"
 )
 
-FILE_DOWNLOADS_TOTAL = Counter(
-    'redbuild_file_downloads_total',
-    'Total number of files downloaded'
+FILE_DOWNLOADS_TOTAL = meter.create_counter(
+    "redbuild.file.downloads_total",
+    description="Total number of files downloaded"
 )
 
 
@@ -57,11 +58,11 @@ def process_file():
         if is_file_required and not file_storage:
             return jsonify({"error": "A file is required for the selected options."}), 400
 
-        task_id = services.start_generator_job(
-            file_storage, original_filename, generator_type, json.dumps(options)
+        job_name = services.start_generator_job(
+            file_storage, original_filename, generator_type, json.dumps(options), task_id=request.task_id
         )
-        JOBS_STARTED_TOTAL.labels(generator_type=generator_type).inc()
-        return jsonify({"task_id": task_id}), 202
+        JOBS_STARTED_TOTAL.add(1, {"generator_type": generator_type})
+        return jsonify({"task_id": job_name}), 202
         
     except Exception as e:
         current_app.logger.error(f"Error starting job: {e}", exc_info=True)
@@ -69,13 +70,13 @@ def process_file():
 
 @bp.route('/status/<job_name>', methods=['GET'])
 def get_status(job_name):
-    JOB_STATUS_CHECKS_TOTAL.inc()
+    JOB_STATUS_CHECKS_TOTAL.add(1)
     status_data = services.check_job_status(job_name)
     status_code = 404 if status_data.get('state') == 'NOT_FOUND' else 200
     return jsonify(status_data), status_code
 
 @bp.route('/download/<filename>', methods=['GET'])
 def download_file(filename):
-    FILE_DOWNLOADS_TOTAL.inc()
+    FILE_DOWNLOADS_TOTAL.add(1)
     return services.download_result_file(filename)
 

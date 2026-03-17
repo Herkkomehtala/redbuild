@@ -1,0 +1,64 @@
+tempo:
+  repository: grafana/tempo
+  tag: 2.10.2
+
+replicas: 1
+
+config: |
+  distributor:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+  ingester:
+    max_block_duration: 5m               # Flush frequently for dev visibility
+    lifecycler:
+      ring:
+        replication_factor: 1
+
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal/ingester
+
+  overrides:
+    metrics_generator_processors: ["service-graphs", "span-metrics", "local-blocks"]
+
+  metrics_generator:
+    registry:
+      external_labels:
+        source: tempo
+        cluster: traces
+    storage:
+      path: /var/tempo/wal/generator
+      remote_write:
+        - url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+          send_exemplars: true
+    traces_storage:
+      path: /var/tempo/wal/ingester
+    processor:
+      local_blocks:
+        filter_server_spans: false
+      service_graphs: {}
+      span_metrics: {}
+
+persistence:
+  enabled: true
+  size: 2Gi
+
+traces:
+  otlp:
+    http:
+      enabled: true
+    grpc:
+      enabled: true
+
+search:
+  enabled: true

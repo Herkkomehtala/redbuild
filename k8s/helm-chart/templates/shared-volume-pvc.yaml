@@ -15,5 +15,7 @@ spec:
   resources:
     requests:
       storage: {{.Values.pvc.size }}
+  {{- if .Values.pvc.storageClassName }}
   storageClassName: {{.Values.pvc.storageClassName }}
+  {{- end }}
 {{- end }}

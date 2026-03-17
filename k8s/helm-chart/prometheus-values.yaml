@@ -12,8 +12,27 @@ grafana:
             matcherRegex: 'cluster="([^"]+)"'
             name: 'cluster'
 
+    - name: "Tempo"
+      type: "tempo"
+      access: "proxy"
+      url: "http://tempo.monitoring.svc.cluster.local:3200"
+      jsonData:
+        httpMethod: "GET"
+        lokiSearch:
+          datasourceUid: "Loki"
+        tracesToLogsV2:
+          datasourceUid: "Loki"
+          spanAttributes: [ "service.name", "task_id" ]
+        tracesToMetrics:
+          datasourceUid: "prometheus"
+          spanAttributes: [ "service.name" ]
+
 kubelet:
   enabled: true
   serviceMonitor:
     https: true
-    insecure_skip_verify: true # Disable in prod
+    insecure_skip_verify: true
+
+prometheus:
+  prometheusSpec:
+    enableRemoteWriteReceiver: true

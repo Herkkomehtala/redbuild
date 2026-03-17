@@ -144,12 +144,6 @@ void Run() {
     ResolveAPIs();
 
     // --- STAGE 1: PREPARATION ---
-    {% if evasion_unhook %}
-        {% include 'partials/evasion_unhook.c.j2' ignore missing %}
-    {% endif %}
-    {% if evasion_etw %}
-        {% include 'partials/evasion_etw.c.j2' ignore missing %}
-    {% endif %}
 
     {% if guardrails_needed %}
     if (!RunGuardrails()) {

@@ -86,9 +86,9 @@
       "type": "select",
       "default": "hashed",
       "choices": [
-        { "value": "string", "text": "Standard Imports (IAT)" },
-        { "value": "hashed", "text": "Dynamic Hashing" },
-        { "value": "recycled_gate", "text": "Indirect Syscalls" }
+        { "value": "string", "text": "Standard Imports" },
+        { "value": "hashed", "text": "API Hashing" },
+        { "value": "recycled_gate", "text": "Indirect Syscalls (Recycled Gate)" }
       ]
     },
     {
@@ -127,11 +127,11 @@
       "type": "select",
       "default": "virtualalloc",
       "choices": [
-        { "value": "virtualalloc", "text": "Private Allocation (Standard)" },
-        { "value": "mappedsection", "text": "Mapped Allocation (Standard)" },
-        { "value": "driploader", "text": "Private Allocation (Drip)" },
+        { "value": "virtualalloc", "text": "VirtualAlloc (Standard)" },
+        { "value": "mappedsection", "text": "Mapped Section (Standard)" },
+        { "value": "driploader", "text": "VirtualAlloc (Dripload)" },
         { "value": "modulestomping_fast", "text": "Module Stomping (Standard)" },
-        { "value": "modulestomping_drip", "text": "Module Stomping (Drip)" }
+        { "value": "modulestomping_drip", "text": "Module Stomping (Dripload)" }
       ]
     },
     {
@@ -182,15 +182,6 @@
         "type": "checkbox",
         "default": "false",
         "depends_on": { "option": "execution_method", "value": "remoteapc" }
-    },
-    {
-        "name": "evasion_features",
-        "display_name": "Defense Evasion",
-        "type": "multiselect",
-        "choices": [
-            { "value": "patch_etw", "text": "Patch ETW (Event Tracing)" },
-            { "value": "unhook_ntdll", "text": "Unhook NTDLL" }
-        ]
     },
     {
         "name": "guardrail_domain_joined",

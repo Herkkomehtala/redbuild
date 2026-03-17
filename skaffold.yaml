@@ -40,12 +40,12 @@ profiles:
       artifacts:
         - image: redbuild-frontend
           context: frontend
-          docker: { dockerfile: Dockerfile.dev }
+          docker: { dockerfile: Dockerfile }
           sync:
             infer: ['**/*']
         - image: redbuild-backend
           context: backend
-          docker: { dockerfile: Dockerfile.dev }
+          docker: { dockerfile: Dockerfile }
           sync:
             infer: ['**/*']
         - image: win-c-compiler-worker
@@ -98,11 +98,43 @@ profiles:
             valuesFiles:
               - k8s/helm-chart/alloy-values.yaml
 
+          - name: tempo
+            repo: https://grafana.github.io/helm-charts
+            remoteChart: tempo
+            namespace: monitoring
+            createNamespace: true
+            wait: true
+            valuesFiles:
+              - k8s/helm-chart/tempo-values.yaml
+
+  # --- TRACING PROFILE ---
+  - name: tracing
+    deploy:
+      helm:
+        releases:
+          - name: redbuild-app
+            chartPath: ./k8s/helm-chart
+            setValueTemplates:
+              frontend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_frontend}}'
+              backend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_backend}}'
+              backend.workerImage: '{{.IMAGE_FULLY_QUALIFIED_win_c_compiler_worker}}'
+              monitoring.otlpEndpoint: "http://alloy.monitoring.svc.cluster.local:4318"
+
   # --- PROD PROFILES ---
   - name: prod
     build:
       local:
         push: true
+    deploy:
+      helm:
+        releases:
+          - name: redbuild-app
+            chartPath: ./k8s/helm-chart
+            setValueTemplates:
+              frontend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_frontend}}'
+              backend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_backend}}'
+              backend.workerImage: '{{.IMAGE_FULLY_QUALIFIED_win_c_compiler_worker}}'
+              monitoring.otlpEndpoint: "http://alloy.monitoring.svc.cluster.local:4318"
 
   - name: local-prod
     build:
@@ -117,3 +149,4 @@ profiles:
               frontend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_frontend}}'
               backend.image: '{{.IMAGE_FULLY_QUALIFIED_redbuild_backend}}'
               backend.workerImage: '{{.IMAGE_FULLY_QUALIFIED_win_c_compiler_worker}}'
+              monitoring.otlpEndpoint: "http://alloy.monitoring.svc.cluster.local:4318"
