@@ -4,7 +4,7 @@
   "profiles": [
     {
       "name": "Simple",
-      "description": "No obfuscations",
+      "description": "Basic execution using standard Windows APIs. Good for functional testing.",
       "settings": {
         "api_resolver": "string",
         "memory_strategy": "virtualalloc",
@@ -15,7 +15,7 @@
     },
     {
       "name": "Advanced",
-      "description": "API hashing, payload compressed and encoded",
+      "description": "Hides imports and uses evasive memory allocation. Good for bypassing basic static analysis.",
       "settings": {
         "api_resolver": "hashed",
         "memory_strategy": "mappedsection",
@@ -26,7 +26,7 @@
     },
     {
       "name": "Very Advanced",
-      "description": "Indirect syscalls, remote process injection, module stomping",
+      "description": "Utilizes indirect syscalls and remote process injection to bypass advanced EDR hooks.",
       "settings": {
         "api_resolver": "recycled_gate",
         "memory_strategy": "modulestomping_fast",
@@ -131,12 +131,8 @@
         { "value": "string", "text": "Standard Imports" },
         { "value": "hashed", "text": "API Hashing" },
         { "value": "recycled_gate", "text": "Indirect Syscalls (Recycled Gate)" }
-<<<<<<< Updated upstream
-      ]
-=======
       ],
       "advanced": true
->>>>>>> Stashed changes
     },
     {
       "name": "bytecode_encoding",
@@ -182,12 +178,8 @@
         { "value": "driploader", "text": "VirtualAlloc (Dripload)" },
         { "value": "modulestomping_fast", "text": "Module Stomping (Standard)" },
         { "value": "modulestomping_drip", "text": "Module Stomping (Dripload)" }
-<<<<<<< Updated upstream
-      ]
-=======
       ],
       "advanced": true
->>>>>>> Stashed changes
     },
     {
       "name": "stomp_dll_path",
@@ -240,12 +232,8 @@
         "display_name": "Obfuscate Strings",
         "type": "checkbox",
         "default": "false",
-<<<<<<< Updated upstream
-        "depends_on": { "option": "execution_method", "value": "remoteapc" }
-=======
         "depends_on": { "option": "execution_method", "value": "remoteapc" },
         "advanced": true
->>>>>>> Stashed changes
     },
     {
         "name": "guardrail_domain_joined",
