@@ -4,7 +4,7 @@
   "profiles": [
     {
       "name": "Simple",
-      "description": "Basic execution using standard Windows APIs. Good for functional testing.",
+      "description": "No obfuscations",
       "settings": {
         "api_resolver": "string",
         "memory_strategy": "virtualalloc",
@@ -15,7 +15,7 @@
     },
     {
       "name": "Advanced",
-      "description": "Hides imports and uses evasive memory allocation. Good for bypassing basic static analysis.",
+      "description": "API hashing, base64 and mszip compression",
       "settings": {
         "api_resolver": "hashed",
         "memory_strategy": "mappedsection",
@@ -26,7 +26,7 @@
     },
     {
       "name": "Very Advanced",
-      "description": "Utilizes indirect syscalls and remote process injection to bypass advanced EDR hooks.",
+      "description": "Indirect syscalls, remote process injection, module stomping, base85 and mszip compression",
       "settings": {
         "api_resolver": "recycled_gate",
         "memory_strategy": "modulestomping_fast",
