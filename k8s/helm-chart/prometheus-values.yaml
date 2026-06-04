@@ -5,6 +5,7 @@ grafana:
     - name: "Loki"
       type: "loki"
       access: "proxy"
+      uid: "loki"
       url: "http://loki-gateway.monitoring.svc.cluster.local" 
       jsonData:
         derivedFields:
@@ -15,13 +16,18 @@ grafana:
     - name: "Tempo"
       type: "tempo"
       access: "proxy"
+      uid: "tempo"
       url: "http://tempo.monitoring.svc.cluster.local:3200"
       jsonData:
         httpMethod: "GET"
         lokiSearch:
-          datasourceUid: "Loki"
+          datasourceUid: "loki"
+        nodeGraph:
+          enabled: true
+        serviceMap:
+          datasourceUid: "prometheus"
         tracesToLogsV2:
-          datasourceUid: "Loki"
+          datasourceUid: "loki"
           spanAttributes: [ "service.name", "task_id" ]
         tracesToMetrics:
           datasourceUid: "prometheus"
@@ -36,3 +42,12 @@ kubelet:
 prometheus:
   prometheusSpec:
     enableRemoteWriteReceiver: true
+    retention: 2d
+    retentionSize: 2GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 3Gi

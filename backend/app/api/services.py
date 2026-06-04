@@ -175,6 +175,9 @@ def _build_job_object(job_name, input_filename, original_filename, generator_typ
     otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     if otel_endpoint:
         container_env.append(V1EnvVar(name="OTEL_EXPORTER_OTLP_ENDPOINT", value=otel_endpoint))
+        container_env.append(V1EnvVar(name="OTEL_EXPORTER_OTLP_TIMEOUT", value="2000"))
+        container_env.append(V1EnvVar(name="OTEL_BSP_EXPORT_TIMEOUT", value="2000"))
+        container_env.append(V1EnvVar(name="OTEL_METRIC_EXPORT_TIMEOUT", value="2000"))
     if traceparent:
         container_env.append(V1EnvVar(name="OTEL_TRACEPARENT", value=traceparent))
 

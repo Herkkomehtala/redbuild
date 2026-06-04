@@ -5,6 +5,10 @@ tempo:
 replicas: 1
 
 config: |
+  compactor:
+    compaction:
+      block_retention: 24h
+
   distributor:
     receivers:
       otlp:
@@ -15,7 +19,7 @@ config: |
             endpoint: 0.0.0.0:4318
 
   ingester:
-    max_block_duration: 5m               # Flush frequently for dev visibility
+    max_block_duration: 5m
     lifecycler:
       ring:
         replication_factor: 1
@@ -48,6 +52,9 @@ config: |
         filter_server_spans: false
       service_graphs: {}
       span_metrics: {}
+
+metricsGenerator:
+  enabled: true
 
 persistence:
   enabled: true

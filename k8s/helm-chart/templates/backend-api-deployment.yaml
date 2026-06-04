@@ -46,6 +46,12 @@ spec:
           {{- if .Values.monitoring.otlpEndpoint }}
           - name: OTEL_EXPORTER_OTLP_ENDPOINT
             value: {{ .Values.monitoring.otlpEndpoint | quote }}
+          - name: OTEL_EXPORTER_OTLP_TIMEOUT
+            value: "2000"
+          - name: OTEL_BSP_EXPORT_TIMEOUT
+            value: "2000"
+          - name: OTEL_METRIC_EXPORT_TIMEOUT
+            value: "2000"
           {{- end }}
         ports:
         - containerPort: 5000
