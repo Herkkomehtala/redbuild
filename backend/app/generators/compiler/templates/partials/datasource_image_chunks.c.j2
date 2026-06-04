@@ -18,17 +18,25 @@ BOOL LoadData(PBYTE* ppData, PDWORD pdwDataSize) {
     for (int i = 0; current_offset < total_bytes_needed; i++) {
         char resource_name[16];
         
-        pfnRtlMoveMemory(resource_name, "im", 2);
+        resource_name[0] = 'i';
+        resource_name[1] = 'm';
         int num = i;
-        int pos = 2;
-        if (num >= 100) num %= 100;
-        if (num >= 10) {
-            resource_name[pos++] = '0' + (num / 10);
-            resource_name[pos++] = '0' + (num % 10);
+        if (num == 0) {
+            resource_name[2] = '0';
+            resource_name[3] = '\0';
         } else {
-            resource_name[pos++] = '0' + num;
+            int pos = 2;
+            char temp[12];
+            int tidx = 0;
+            while (num > 0 && tidx < 10) {
+                temp[tidx++] = (num % 10) + '0';
+                num /= 10;
+            }
+            while (tidx > 0) {
+                resource_name[pos++] = temp[--tidx];
+            }
+            resource_name[pos] = '\0';
         }
-        resource_name[pos] = '\0';
 
         HRSRC hRes = pfnFindResourceA(g_hModule, resource_name, RT_RCDATA);
         if (hRes == NULL) {

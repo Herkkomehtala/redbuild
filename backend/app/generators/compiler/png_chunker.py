@@ -4,7 +4,7 @@ import math
 import random
 import png
 
-def chunk_bytecode_to_pngs(bytecode, temp_files_to_clean, max_dim=48):
+def chunk_bytecode_to_pngs(bytecode, temp_files_to_clean, max_dim=256):
     """Split bytecode into multiple PNG files and return their paths."""
     total_bytes = len(bytecode)
     remaining_pixels = (total_bytes + 3) // 4
